@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ProcessDetailListView: View {
     let kind: ProcessDetailKind
@@ -11,15 +12,36 @@ struct ProcessDetailListView: View {
     @State private var visible = ProcessDetailRecords()
     @State private var failure: String?
     @State private var searchText = ""
+    @State private var inspected: DetailRowInspection?
     @AppStorage private var sortOrder: ProcessDetailSortOrder
+    @AppStorage private var sortAscending: Bool
+
+    private let columns: [DetailColumn]
 
     init(kind: ProcessDetailKind, identity: ProcessIdentity) {
         self.kind = kind
         self.identity = identity
+        columns = ProcessDetailTable.columns(for: kind)
         // One stored order per kind: "sort by size" means nothing to threads.
+        let fallback = ProcessDetailSort.default(for: kind)
         _sortOrder = AppStorage(
-            wrappedValue: .default(for: kind),
+            wrappedValue: fallback.order,
             "processDetail.sortOrder.\(kind.rawValue)"
+        )
+        _sortAscending = AppStorage(
+            wrappedValue: fallback.ascending,
+            "processDetail.sortAscending.\(kind.rawValue)"
+        )
+    }
+
+    private var sort: ProcessDetailSort {
+        ProcessDetailSort(order: sortOrder, ascending: sortAscending)
+    }
+
+    private var sortBinding: Binding<ProcessDetailSort> {
+        Binding(
+            get: { sort },
+            set: { sortOrder = $0.order; sortAscending = $0.ascending }
         )
     }
 
@@ -53,6 +75,9 @@ struct ProcessDetailListView: View {
                 content(for: detail)
             }
         }
+        // Plain rows keep the header pinned to the top of the list while it
+        // scrolls, which is what makes this read as a table.
+        .listStyle(.plain)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: searchPrompt)
@@ -60,10 +85,11 @@ struct ProcessDetailListView: View {
             ToolbarItem(placement: .topBarTrailing) { optionsMenu }
         }
         .overlay { overlayContent }
+        .sheet(item: $inspected) { RowInspectionSheet(inspection: $0) }
         .task { await load() }
         .refreshable { await load() }
         .onChange(of: searchText) { rebuildVisible() }
-        .onChange(of: sortOrder) { rebuildVisible() }
+        .onChange(of: sort) { rebuildVisible() }
     }
 
     @ViewBuilder private var optionsMenu: some View {
@@ -80,12 +106,6 @@ struct ProcessDetailListView: View {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
                 .disabled(visible.isEmpty)
-                Picker("Sort By", systemImage: "arrow.up.arrow.down", selection: $sortOrder) {
-                    ForEach(ProcessDetailSortOrder.options(for: kind)) { order in
-                        Text(order.label).tag(order)
-                    }
-                }
-                .pickerStyle(.menu)
             }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -100,33 +120,66 @@ struct ProcessDetailListView: View {
                 EmptyView()
             case .threads:
                 ForEach(visible.threads, id: \.id) { thread in
-                    ThreadRowView(thread: thread)
+                    row(
+                        cells: ProcessDetailTable.cells(thread: thread),
+                        inspection: DetailRowInspection(thread: thread)
+                    )
                 }
             case .files:
                 ForEach(visible.files, id: \.descriptor) { file in
-                    FileRowView(file: file)
+                    row(
+                        cells: ProcessDetailTable.cells(file: file),
+                        inspection: DetailRowInspection(file: file)
+                    )
                 }
             case .ports:
                 ForEach(visible.ports, id: \.name) { port in
-                    PortRowView(port: port)
+                    row(
+                        cells: ProcessDetailTable.cells(port: port),
+                        inspection: DetailRowInspection(port: port)
+                    )
                 }
             case .modules:
                 ForEach(visible.modules, id: \.address) { module in
-                    ModuleRowView(module: module)
+                    row(
+                        cells: ProcessDetailTable.cells(module: module),
+                        inspection: DetailRowInspection(module: module)
+                    )
                 }
             }
         } header: {
-            if let header = header(for: detail) {
-                Text(header)
+            if !columns.isEmpty {
+                DetailTableHeader(columns: columns, sort: sortBinding)
             }
         } footer: {
+            footer(for: detail)
+        }
+    }
+
+    // A row shows only what fits on one line; tapping it opens everything the
+    // record carries, including the full path.
+    private func row(cells: [String], inspection: DetailRowInspection) -> some View {
+        Button {
+            inspected = inspection
+        } label: {
+            DetailTableRow(columns: columns, cells: cells)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder private func footer(for detail: ProcessDetailSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let count = countSummary(for: detail) {
+                Text(count)
+            }
             if detail.status == .partial {
                 Text("Some of this couldn’t be read (error \(detail.errorCode)).")
             }
         }
+        .padding(.top, 4)
     }
 
-    private func header(for detail: ProcessDetailSnapshot) -> String? {
+    private func countSummary(for detail: ProcessDetailSnapshot) -> String? {
         let total = ProcessDetailRecords.total(in: detail, kind: kind)
         guard total > 0 else { return nil }
         return visible.count == total
@@ -162,7 +215,7 @@ struct ProcessDetailListView: View {
         visible = ProcessDetailRecords.visible(
             in: detail,
             kind: kind,
-            order: sortOrder,
+            sort: sort,
             query: searchText
         )
     }
@@ -194,106 +247,38 @@ struct ProcessDetailListView: View {
     }
 }
 
-private struct ThreadRowView: View {
-    let thread: ThreadRecord
+private struct RowInspectionSheet: View {
+    let inspection: DetailRowInspection
+
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(
-                    thread.name.isEmpty
-                        ? String(localized: "Thread \(InspectorFormat.hex(thread.id))")
-                        : thread.name
-                )
-                .lineLimit(1)
-                Text("\(InspectorFormat.threadState(thread.runState)) · priority \(thread.currentPriority)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(String(format: "%.1f%%", Double(thread.cpuUsage) / 10))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct FileRowView: View {
-    let file: FileDescriptorRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("fd \(file.descriptor) · \(file.detail.isEmpty ? InspectorFormat.fileKind(file.kind) : file.detail)")
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-        }
-    }
-
-    private var subtitle: String { ProcessDetailRecords.fileName(file) }
-}
-
-private struct PortRowView: View {
-    let port: MachPortRecord
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(InspectorFormat.hex(UInt64(port.name)))
-                    .monospaced()
-                Text(subtitle)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if port.userReferences > 1 {
-                Text("refs \(port.userReferences)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var subtitle: String {
-        var parts = [InspectorFormat.portRights(port.rights)]
-        if port.objectType != 0 {
-            parts.append(String(localized: "kobject \(Int(port.objectType))"))
-        }
-        if !port.setMembers.isEmpty {
-            parts.append(String(localized: "\(port.setMembers.count) members"))
-        }
-        return parts.joined(separator: " · ")
-    }
-}
-
-private struct ModuleRowView: View {
-    let module: ModuleRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(name)
-                    .lineLimit(1)
-                Spacer()
-                if module.size > 0 {
-                    Text(InspectorFormat.bytes(module.size))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+        NavigationStack {
+            List {
+                ForEach(inspection.fields) { field in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(field.label)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(field.value)
+                            .font(field.isMonospaced ? .callout.monospaced() : .callout)
+                            .textSelection(.enabled)
+                    }
                 }
             }
-            if !module.path.isEmpty {
-                Text(module.path)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .textSelection(.enabled)
+            .navigationTitle(inspection.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Copy", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = inspection.text
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
+        .presentationDetents([.medium, .large])
     }
-
-    private var name: String { ProcessDetailRecords.moduleName(module) }
 }

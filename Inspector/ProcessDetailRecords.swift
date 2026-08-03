@@ -3,6 +3,7 @@ import Foundation
 enum ProcessDetailSortOrder: String, CaseIterable, Identifiable {
     case cpu
     case priority
+    case state
     case name
     case descriptor
     case fileKind
@@ -20,6 +21,7 @@ enum ProcessDetailSortOrder: String, CaseIterable, Identifiable {
         switch self {
         case .cpu: String(localized: "CPU Usage")
         case .priority: String(localized: "Priority")
+        case .state: String(localized: "State")
         case .name: String(localized: "Name")
         case .descriptor: String(localized: "File Descriptor")
         case .fileKind: String(localized: "Kind")
@@ -31,19 +33,51 @@ enum ProcessDetailSortOrder: String, CaseIterable, Identifiable {
         }
     }
 
+    // Which way a column reads best the first time it is tapped: counters and
+    // sizes are interesting at the top, names and addresses read in order.
+    var sortsAscendingByDefault: Bool {
+        switch self {
+        case .cpu, .priority, .references, .size: false
+        case .state, .name, .descriptor, .fileKind, .port, .rights, .address: true
+        }
+    }
+
     // First entry is the kind's default order — the one load() used to apply.
     static func options(for kind: ProcessDetailKind) -> [ProcessDetailSortOrder] {
         switch kind {
         case .summary: []
-        case .threads: [.cpu, .name, .priority]
+        case .threads: [.cpu, .name, .state, .priority]
         case .files: [.descriptor, .fileKind, .name]
         case .ports: [.port, .rights, .references]
-        case .modules: [.address, .name, .size]
+        case .modules: [.address, .name, .size, .references]
         }
     }
 
     static func `default`(for kind: ProcessDetailKind) -> ProcessDetailSortOrder {
         options(for: kind).first ?? .name
+    }
+}
+
+// A tapped column header carries both a key and a direction, so the two travel
+// together — the direction alone is meaningless.
+struct ProcessDetailSort: Equatable {
+    var order: ProcessDetailSortOrder
+    var ascending: Bool
+
+    static func `default`(for kind: ProcessDetailKind) -> ProcessDetailSort {
+        let order = ProcessDetailSortOrder.default(for: kind)
+        return ProcessDetailSort(order: order, ascending: order.sortsAscendingByDefault)
+    }
+
+    // Tapping the sorted column reverses it; tapping another switches to it in
+    // whichever direction that column reads best — the way Finder behaves.
+    mutating func select(_ order: ProcessDetailSortOrder) {
+        if self.order == order {
+            ascending.toggle()
+        } else {
+            self.order = order
+            ascending = order.sortsAscendingByDefault
+        }
     }
 }
 
@@ -70,13 +104,17 @@ struct ProcessDetailRecords {
 
     // Sorts are total orders with a stable final key: Swift's sort is not
     // stable, so equal-keyed records would otherwise shuffle on every rebuild.
+    // Each comparator reads ascending; a descending column swaps its operands,
+    // which keeps the tiebreaker consistent with the visible direction.
     static func visible(
         in detail: ProcessDetailSnapshot,
         kind: ProcessDetailKind,
-        order: ProcessDetailSortOrder,
+        sort: ProcessDetailSort,
         query: String
     ) -> ProcessDetailRecords {
         let query = query.trimmingCharacters(in: .whitespaces)
+        let order = sort.order
+        let ascending = sort.ascending
         var records = ProcessDetailRecords()
         switch kind {
         case .summary:
@@ -84,19 +122,35 @@ struct ProcessDetailRecords {
         case .threads:
             records.threads = detail.threads
                 .filter { matches(thread: $0, query: query) }
-                .sorted { areInOrder(threads: $0, $1, order: order) }
+                .sorted {
+                    ascending
+                        ? areInOrder(threads: $0, $1, order: order)
+                        : areInOrder(threads: $1, $0, order: order)
+                }
         case .files:
             records.files = detail.files
                 .filter { matches(file: $0, query: query) }
-                .sorted { areInOrder(files: $0, $1, order: order) }
+                .sorted {
+                    ascending
+                        ? areInOrder(files: $0, $1, order: order)
+                        : areInOrder(files: $1, $0, order: order)
+                }
         case .ports:
             records.ports = detail.ports
                 .filter { matches(port: $0, query: query) }
-                .sorted { areInOrder(ports: $0, $1, order: order) }
+                .sorted {
+                    ascending
+                        ? areInOrder(ports: $0, $1, order: order)
+                        : areInOrder(ports: $1, $0, order: order)
+                }
         case .modules:
             records.modules = detail.modules
                 .filter { matches(module: $0, query: query) }
-                .sorted { areInOrder(modules: $0, $1, order: order) }
+                .sorted {
+                    ascending
+                        ? areInOrder(modules: $0, $1, order: order)
+                        : areInOrder(modules: $1, $0, order: order)
+                }
         }
         return records
     }
@@ -156,13 +210,16 @@ struct ProcessDetailRecords {
             case .orderedDescending: return false
             case .orderedSame: return lhs.id < rhs.id
             }
+        case .state:
+            if lhs.runState != rhs.runState { return lhs.runState < rhs.runState }
+            return lhs.id < rhs.id
         case .priority:
             if lhs.currentPriority != rhs.currentPriority {
-                return lhs.currentPriority > rhs.currentPriority
+                return lhs.currentPriority < rhs.currentPriority
             }
             return lhs.id < rhs.id
         default:
-            if lhs.cpuUsage != rhs.cpuUsage { return lhs.cpuUsage > rhs.cpuUsage }
+            if lhs.cpuUsage != rhs.cpuUsage { return lhs.cpuUsage < rhs.cpuUsage }
             return lhs.id < rhs.id
         }
     }
@@ -198,7 +255,7 @@ struct ProcessDetailRecords {
             return lhs.name < rhs.name
         case .references:
             if lhs.userReferences != rhs.userReferences {
-                return lhs.userReferences > rhs.userReferences
+                return lhs.userReferences < rhs.userReferences
             }
             return lhs.name < rhs.name
         default:
@@ -219,7 +276,12 @@ struct ProcessDetailRecords {
             case .orderedSame: return lhs.address < rhs.address
             }
         case .size:
-            if lhs.size != rhs.size { return lhs.size > rhs.size }
+            if lhs.size != rhs.size { return lhs.size < rhs.size }
+            return lhs.address < rhs.address
+        case .references:
+            if lhs.referenceCount != rhs.referenceCount {
+                return lhs.referenceCount < rhs.referenceCount
+            }
             return lhs.address < rhs.address
         default:
             return lhs.address < rhs.address
@@ -298,6 +360,7 @@ enum ProcessDetailExport {
             InspectorFormat.hex(module.address),
         ]
         if module.size > 0 { parts.append(InspectorFormat.bytes(module.size)) }
+        if module.referenceCount > 0 { parts.append("refs \(module.referenceCount)") }
         if !module.path.isEmpty { parts.append(module.path) }
         return parts.joined(separator: " · ")
     }

@@ -190,12 +190,16 @@ struct ContentView: View {
         if !model.rows.isEmpty {
             Section {
             } footer: {
-                Link(destination: URL(string: "https://owngoal.dev")!) {
-                    Text("Made with ❤️ by OwnGoal Studio")
-                        .font(.footnote)
-                        .frame(maxWidth: .infinity)
+                VStack(spacing: 2) {
+                    Link(destination: URL(string: "https://owngoal.dev")!) {
+                        Text("Made with ❤️ by OwnGoal Studio")
+                            .font(.footnote)
+                    }
+                    .foregroundStyle(.primary)
+                    Text(InspectorFormat.appVersion)
+                        .font(.footnote.monospacedDigit())
                 }
-                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
                 .opacity(0.5)
             }
         }

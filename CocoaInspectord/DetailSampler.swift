@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MachO
 
 final class DetailSampler {
     private static let maximumThreads = 4_096
@@ -8,6 +9,7 @@ final class DetailSampler {
     private static let maximumRegions = 16_384
     private static let maximumModules = 2_048
     private static let maximumPropertyListBytes = 1_024 * 1_024
+    private static let maximumLoadCommandBytes: UInt32 = 32_768
 
     private let processes: ProcessSampler
 
@@ -401,11 +403,15 @@ final class DetailSampler {
         for image in images where records.count < Self.maximumModules && seen.insert(image.path).inserted {
             autoreleasepool {
                 let region = regionByPath[image.path]
+                // Everything in the shared cache is one region as far as
+                // proc_regionpath is concerned, so those images have no region
+                // of their own to take a size from — read it off the header.
+                let size = region?.size ?? imageSize(task: task, address: image.address)
                 records.append(ModuleRecord(
                     path: image.path,
                     identifier: "",
                     address: image.address,
-                    size: region?.size ?? 0,
+                    size: size,
                     referenceCount: region?.referenceCount ?? 0
                 ))
             }
@@ -532,6 +538,52 @@ final class DetailSampler {
             }
         }
         return images
+    }
+
+    // Mapped bytes of a Mach-O image, summed from its segments. __PAGEZERO is
+    // never mapped and __LINKEDIT is one region shared by every image in the
+    // dyld cache, so counting either would report a size nothing else agrees
+    // with. Returns 0 when the header can't be read — the UI shows a dash.
+    private func imageSize(task: mach_port_t, address: UInt64) -> UInt64 {
+        guard let header = readMemory(task: task, address: address, count: 32) else { return 0 }
+        let counts = header.withUnsafeBytes { bytes -> (UInt32, Int)? in
+            guard let magic = bytes.inspectorLoad(UInt32.self, at: 0),
+                  magic == MH_MAGIC_64,
+                  let commandCount = bytes.inspectorLoad(UInt32.self, at: 16),
+                  let commandBytes = bytes.inspectorLoad(UInt32.self, at: 20),
+                  commandCount > 0,
+                  commandBytes >= 8,
+                  commandBytes <= Self.maximumLoadCommandBytes else { return nil }
+            return (commandCount, Int(commandBytes))
+        }
+        let (start, overflow) = address.addingReportingOverflow(32)
+        guard let (commandCount, commandBytes) = counts,
+              !overflow,
+              let commands = readMemory(task: task, address: start, count: commandBytes) else {
+            return 0
+        }
+
+        var total: UInt64 = 0
+        var offset = 0
+        for _ in 0..<commandCount {
+            let segment = commands.withUnsafeBytes { bytes -> (size: Int, mapped: UInt64)? in
+                guard let command = bytes.inspectorLoad(UInt32.self, at: offset),
+                      let commandSize = bytes.inspectorLoad(UInt32.self, at: offset + 4),
+                      commandSize >= 8,
+                      offset + Int(commandSize) <= commandBytes else { return nil }
+                guard command == UInt32(LC_SEGMENT_64), commandSize >= 72,
+                      let mapped = bytes.inspectorLoad(UInt64.self, at: offset + 32) else {
+                    return (Int(commandSize), 0)
+                }
+                let name = bytes.inspectorCString(at: offset + 8, capacity: 16)
+                let counted = name != "__PAGEZERO" && name != "__LINKEDIT"
+                return (Int(commandSize), counted ? mapped : 0)
+            }
+            guard let segment else { break }
+            total = adding(total, segment.mapped)
+            offset += segment.size
+        }
+        return total
     }
 
     private func readMemory(

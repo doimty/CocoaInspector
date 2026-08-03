@@ -29,12 +29,13 @@ struct ProcessDetailView: View {
 
     var body: some View {
         List {
+            // The drill-downs sit right under the overview: they are what this
+            // screen is for, and scrolling past every stat to reach them is not.
             overviewSection
+            detailLinksSection
             resourceSection
             executableSection
             bundleSection
-            detailLinksSection
-            actionsSection
         }
         .navigationTitle(row.displayName)
         .navigationBarTitleDisplayMode(.inline)
@@ -91,6 +92,23 @@ struct ProcessDetailView: View {
                 Label("Export as Property List", systemImage: "square.and.arrow.up")
             }
             .disabled(isExporting)
+            if record.pid > 1, !hasExited {
+                Section {
+                    Button(role: .destructive) {
+                        pendingSignal = .terminate
+                        isConfirmingSignal = true
+                    } label: {
+                        Label("Ask It to Quit", systemImage: "stop.circle")
+                    }
+                    Button(role: .destructive) {
+                        pendingSignal = .forceKill
+                        isConfirmingSignal = true
+                    } label: {
+                        Label("Force Quit", systemImage: "xmark.octagon")
+                    }
+                }
+                .disabled(isSendingSignal)
+            }
         } label: {
             if isExporting {
                 ProgressView()
@@ -215,22 +233,6 @@ struct ProcessDetailView: View {
             NavigationLink("Loaded Modules") {
                 ProcessDetailListView(kind: .modules, identity: identity)
             }
-        }
-    }
-
-    @ViewBuilder private var actionsSection: some View {
-        if record.pid > 1, !hasExited {
-            Section {
-                Button("Ask It to Quit", role: .destructive) {
-                    pendingSignal = .terminate
-                    isConfirmingSignal = true
-                }
-                Button("Force Quit", role: .destructive) {
-                    pendingSignal = .forceKill
-                    isConfirmingSignal = true
-                }
-            }
-            .disabled(isSendingSignal)
         }
     }
 

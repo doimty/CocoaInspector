@@ -81,6 +81,14 @@ enum InspectorFormat {
     static func hex(_ value: UInt64) -> String {
         "0x" + String(value, radix: 16)
     }
+
+    // Marketing version plus build, the way a bug report should quote it.
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "0"
+        let build = info?["CFBundleVersion"] as? String ?? "0"
+        return "v\(version)(\(build))"
+    }
 }
 
 enum InspectorErrorText {
