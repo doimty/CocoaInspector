@@ -1,0 +1,57 @@
+# CocoaInspector
+
+Live process inspector for [roothide](https://github.com/roothide) jailbroken iOS.
+
+SwiftUI app (`Inspector/`), root LaunchDaemon (`CocoaInspectord/`), CLI (`CocoaInspectorCLI/`), and a shared XPC data layer (`Shared/`, `InspectorClient/`). The daemon samples only while an authenticated client holds a foreground lease. Clients can list processes, open per-process detail views, export snapshots, and send two-phase `SIGTERM` / `SIGKILL`.
+
+License: [MIT](LICENSE).
+
+> Jailbreak-only. Uses private entitlements and APIs. Not for the App Store.
+
+## Requirements
+
+- macOS with Xcode (iOS 17 SDK)
+- `ldid`, `dpkg-deb` (for packaging)
+- A roothide jailbroken device to install and run the package
+
+## Build
+
+```sh
+make build    # check + macOS harness + unsigned iOS targets
+make deb      # build, ad-hoc sign, package iphoneos-arm64e .deb
+make harness  # shared data-layer tests on macOS only
+```
+
+`make deb` writes the package under `build/Packages`. Path helper: `make print-deb-path`.
+
+Optional local signing overrides go in git-ignored `Configuration/Developer*.xcconfig` (see `Configuration/Developer.xcconfig.example`).
+
+## Versioning
+
+`Configuration/Version.xcconfig` is the single source for app, daemon, CLI, and Debian package version:
+
+```sh
+make print-version
+make set-version VERSION=1.2.3 BUILD=7
+```
+
+Pushing a `vX.Y.Z` tag makes CI apply that version, build the package, and publish a GitHub release with `SHA256SUMS`.
+
+## Install & verify
+
+Install the `.deb` with your roothide package manager or `dpkg`. The archive contains `Inspector.app`, `/usr/bin/cocoainspector`, `/usr/libexec/cocoainspectord`, and an on-demand LaunchDaemon plist. Paths under `/Applications`, `/usr`, and `/Library` are mapped into the randomized jailbreak root by the bootstrap.
+
+```sh
+sudo cocoainspector self-test
+sudo cocoainspector self-test --signal
+sudo cocoainspector list
+sudo cocoainspector inspect 1
+sudo cocoainspector details 1 all
+sudo cocoainspector watch --count 10 --interval-ms 1000
+```
+
+The normal self-test is read-only. `--signal` creates and terminates only a child of the CLI so the two-phase signal path can be tested without selecting a system process.
+
+## Architecture notes
+
+Daemon / XPC auth, idle, signal, and jetsam rules: [Documentation/Daemon-XPC-Architecture.md](Documentation/Daemon-XPC-Architecture.md).

@@ -1,0 +1,14 @@
+#!/bin/sh
+
+launch_plist=/Library/LaunchDaemons/wiki.qaq.cocoainspectord.plist
+if [ -x /usr/bin/launchctl ]; then
+    /usr/bin/launchctl bootout system/wiki.qaq.cocoainspectord 2>/dev/null || true
+    /usr/bin/launchctl bootstrap system "$launch_plist"
+fi
+
+uicache=/usr/bin/uicache
+if [ -x "$uicache" ]; then
+    "$uicache" -p /Applications/Inspector.app || true
+fi
+
+exit 0

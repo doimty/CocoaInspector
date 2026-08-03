@@ -1,0 +1,29 @@
+.DS_Store
+**/.DS_Store
+
+# Xcode / local build
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Per-developer signing and local overrides
+Configuration/Developer*.xcconfig
+!Configuration/Developer.xcconfig.example
+
+# Editor / agent local state
+.claude/
+.cursor/
+.vscode/
+*.swp
+*~
+
+# SwiftPM / misc
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.docs/
+.tmp/

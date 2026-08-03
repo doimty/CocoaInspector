@@ -1,0 +1,33 @@
+Package: @PACKAGE_ID@
+Name: Inspector
+Version: @VERSION@
+Architecture: @ARCHITECTURE@
+Description: Live process inspector for roothide
+ Inspector samples every process on the device once a second and shows what the system is really doing.
+ .
+ ### Process list
+ .
+ - CPU share, memory footprint, thread count, PID, and owning user, refreshed every second
+ - Search by name or PID; sort by CPU, memory, PID, or name
+ - Filter down to system (root), user (mobile), or app processes
+ - Pause live updates to hold a moment still
+ .
+ ### Per-process detail
+ .
+ - Resource use: CPU time, memory footprint, resident and virtual size, disk and network I/O
+ - Executable path, arguments, sandbox status, and app bundle metadata
+ - Separate screens for threads, open files and sockets, Mach ports, and loaded modules — each with its own search, sort order, and share action
+ - Export the complete detail set as a property list for later analysis
+ - Ask a process to quit (SIGTERM), or force quit it (SIGKILL)
+ .
+ ### Command line
+ .
+ `cocoainspector` answers the same queries for scripting — `list`, `inspect`, `details`, `watch`, `signal`, and `self-test` — served by `cocoainspectord`, an on-demand LaunchDaemon that holds one session at a time.
+ .
+ Localized into English, Simplified Chinese, Japanese, Russian, German, French, Spanish, and Arabic.
+Maintainer: OwnGoal Studio <not-gonna-reply@owngoal.dev>
+Author: OwnGoal Studio <not-gonna-reply@owngoal.dev>
+Section: Utilities
+Priority: optional
+Depends: firmware (>= 17.0), uikittools, launchctl
+Installed-Size: @INSTALLED_SIZE@

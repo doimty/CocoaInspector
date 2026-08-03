@@ -1,0 +1,193 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cocoa-inspector-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and verify Debian package
+    runs-on: [self-hosted, macos, arm64, mini-control]
+    timeout-minutes: 30
+
+    steps:
+      - name: Configure build paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "DERIVED_DATA=$RUNNER_TEMP/cocoa-inspector-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install missing build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          formulae=()
+          command -v dpkg-deb >/dev/null 2>&1 || formulae+=(dpkg)
+          command -v ldid >/dev/null 2>&1 || formulae+=(ldid)
+          if (( ${#formulae[@]} > 0 )); then
+            brew install "${formulae[@]}"
+          fi
+
+      - name: Apply release version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./Scripts/apply-version.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER"
+
+      - name: Build Debian package with Xcode
+        run: |
+          xcodebuild -version
+          make deb CONFIGURATION=Release DERIVED_DATA="$DERIVED_DATA"
+
+      - name: Verify Debian package
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEB_PATH="$(make --no-print-directory print-deb-path)"
+          APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/Inspector.app"
+          DAEMON_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/cocoainspectord"
+          CLI_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/cocoainspector"
+          test -f "$DEB_PATH"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            test "$(make --no-print-directory print-version)" = "${GITHUB_REF_NAME#v}"
+          fi
+          test "$(dpkg-deb -f "$DEB_PATH" Package)" = "wiki.qaq.inspector"
+          test "$(dpkg-deb -f "$DEB_PATH" Version)" = "$(make --no-print-directory print-version)"
+          test "$(dpkg-deb -f "$DEB_PATH" Architecture)" = "iphoneos-arm64e"
+          test "$(lipo -archs "$APP_PATH/Inspector")" = "arm64"
+          test "$(lipo -archs "$DAEMON_PATH")" = "arm64"
+          test "$(lipo -archs "$CLI_PATH")" = "arm64"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$APP_PATH/Info.plist")" = "AppIcon"
+          test "$(sips -g pixelWidth "$APP_PATH/AppIcon60x60@2x.png" 2>/dev/null | awk '/pixelWidth:/ {print $2}')" = "120"
+          test "$(sips -g pixelHeight "$APP_PATH/AppIcon60x60@2x.png" 2>/dev/null | awk '/pixelHeight:/ {print $2}')" = "120"
+          test "$(sips -g pixelWidth "$APP_PATH/AppIcon76x76@2x~ipad.png" 2>/dev/null | awk '/pixelWidth:/ {print $2}')" = "152"
+          test "$(sips -g pixelHeight "$APP_PATH/AppIcon76x76@2x~ipad.png" 2>/dev/null | awk '/pixelHeight:/ {print $2}')" = "152"
+          dpkg-deb --contents "$DEB_PATH" | grep -F './Applications/Inspector.app/Inspector'
+          dpkg-deb --contents "$DEB_PATH" | grep -F './Applications/Inspector.app/AppIcon60x60@2x.png'
+          dpkg-deb --contents "$DEB_PATH" | grep -F './Applications/Inspector.app/AppIcon76x76@2x~ipad.png'
+          dpkg-deb --contents "$DEB_PATH" | grep -F './usr/libexec/cocoainspectord'
+          dpkg-deb --contents "$DEB_PATH" | grep -F './usr/bin/cocoainspector'
+          dpkg-deb --contents "$DEB_PATH" | grep -F './Library/LaunchDaemons/wiki.qaq.cocoainspectord.plist'
+          dpkg-deb --info "$DEB_PATH"
+          dpkg-deb --contents "$DEB_PATH"
+          DEB_NAME="$(basename "$DEB_PATH")"
+          DEB_SIZE="$(stat -f '%z' "$DEB_PATH")"
+          DEB_SHA256="$(shasum -a 256 "$DEB_PATH" | awk '{print $1}')"
+          printf '%s  %s\n' "$DEB_SHA256" "$DEB_NAME" | tee build/Packages/SHA256SUMS
+          {
+            echo '### Debian package'
+            echo
+            echo "- File: \`$DEB_NAME\`"
+            echo "- Size: \`$DEB_SIZE bytes\`"
+            echo "- SHA-256: \`$DEB_SHA256\`"
+            echo "- Artifact: \`CocoaInspector-$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: CocoaInspector-${{ github.sha }}
+          path: |
+            build/Packages/*.deb
+            build/Packages/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove derived data
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          derived_data="${DERIVED_DATA:-}"
+          case "$derived_data" in
+            "$RUNNER_TEMP"/cocoa-inspector-*) rm -rf -- "$derived_data" ;;
+            *) echo "error: refusing to remove unexpected path: $derived_data" >&2; exit 64 ;;
+          esac
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, macos, arm64, mini-control]
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Debian package
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: CocoaInspector-${{ github.sha }}
+          path: release-assets
+
+      - name: Install missing release dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          formulae=()
+          command -v gh >/dev/null 2>&1 || formulae+=(gh)
+          command -v dpkg-deb >/dev/null 2>&1 || formulae+=(dpkg)
+          if (( ${#formulae[@]} > 0 )); then
+            brew install "${formulae[@]}"
+          fi
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          deb_name="wiki.qaq.inspector_${version}_iphoneos-arm64e.deb"
+          deb_path="release-assets/$deb_name"
+          test -f "$deb_path"
+          test -f release-assets/SHA256SUMS
+          test "$(dpkg-deb -f "$deb_path" Version)" = "$version"
+          sha256="$(shasum -a 256 "$deb_path" | awk '{print $1}')"
+          notes="$(mktemp "${TMPDIR:-/tmp}/cocoa-inspector-notes.XXXXXX")"
+          trap 'rm -f "$notes"' EXIT
+          {
+            echo "CocoaInspector $version for roothide."
+            echo
+            echo '```sh'
+            echo "sudo dpkg -i $deb_name"
+            echo '```'
+            echo
+            echo "- SHA-256: \`$sha256\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+          } >"$notes"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber "$deb_path" release-assets/SHA256SUMS
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file "$notes" \
+              "$deb_path" release-assets/SHA256SUMS
+          fi
+
+      - name: Remove downloaded assets
+        if: always()
+        shell: bash
+        run: rm -rf -- release-assets

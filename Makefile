@@ -1,0 +1,130 @@
+# Inspector Xcode build and roothide Debian packaging
+
+SHELL := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
+
+ROOT_DIR            := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+PROJECT             := $(ROOT_DIR)/Inspector.xcodeproj
+SCHEME              := Inspector
+CONFIGURATION       ?= Release
+DERIVED_DATA        ?= /private/tmp/inspector-deriveddata
+APP_BUNDLE          := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/Inspector.app
+DAEMON_BINARY       := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/cocoainspectord
+CLI_BINARY          := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/cocoainspector
+PACKAGE_ID          ?= wiki.qaq.inspector
+PACKAGE_ARCHITECTURE ?= iphoneos-arm64e
+CONFIG_DIR          := $(ROOT_DIR)/Configuration
+VERSION_CONFIG      := $(CONFIG_DIR)/Version.xcconfig
+xcconfig_setting     = $(strip $(shell awk -F= '$$1 ~ /^[[:space:]]*$(1)[[:space:]]*$$/ { gsub(/[[:space:]]/, "", $$2); print $$2; exit }' "$(VERSION_CONFIG)"))
+APP_VERSION         := $(call xcconfig_setting,MARKETING_VERSION)
+BUILD_NUMBER        := $(call xcconfig_setting,CURRENT_PROJECT_VERSION)
+DEB_OUTPUT          ?= $(ROOT_DIR)/build/Packages/$(PACKAGE_ID)_$(APP_VERSION)_$(PACKAGE_ARCHITECTURE).deb
+
+XCODEBUILD_WRAPPER  := $(ROOT_DIR)/Scripts/run-xcodebuild.sh
+DEB_PACKAGER        := $(ROOT_DIR)/Scripts/package-deb.sh
+VERSION_APPLIER     := $(ROOT_DIR)/Scripts/apply-version.sh
+CONTROL_TEMPLATE    := $(ROOT_DIR)/Packaging/DEBIAN/control
+ENTITLEMENTS        := $(ROOT_DIR)/Packaging/Inspector.entitlements
+DAEMON_ENTITLEMENTS := $(ROOT_DIR)/Packaging/CocoaInspectord.entitlements
+CLI_ENTITLEMENTS    := $(ROOT_DIR)/Packaging/CocoaInspectorCLI.entitlements
+LAUNCH_DAEMON       := $(ROOT_DIR)/Packaging/wiki.qaq.cocoainspectord.plist
+
+XCODEBUILD := $(XCODEBUILD_WRAPPER) \
+	-project "$(PROJECT)" \
+	-derivedDataPath "$(DERIVED_DATA)" \
+	-skipMacroValidation \
+	-skipPackagePluginValidation \
+	CODE_SIGNING_ALLOWED=NO \
+	CODE_SIGNING_REQUIRED=NO \
+	CODE_SIGN_IDENTITY="" \
+	IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+	ARCHS=arm64 \
+	ONLY_ACTIVE_ARCH=YES \
+	ENABLE_DEBUG_DYLIB=NO
+
+ifeq ($(APP_VERSION),)
+$(error MARKETING_VERSION is missing from Configuration/Version.xcconfig)
+endif
+ifeq ($(BUILD_NUMBER),)
+$(error CURRENT_PROJECT_VERSION is missing from Configuration/Version.xcconfig)
+endif
+
+.PHONY: all help print-version print-build-number print-deb-path set-version check harness build deb clean
+
+all: deb
+
+help:
+	@echo "Inspector:"
+	@echo "  build       Build the unsigned Inspector.app for iPhoneOS"
+	@echo "  deb         Build, ad-hoc sign, and package the roothide .deb"
+	@echo "  check       Validate the Xcode project and packaging inputs"
+	@echo "  harness     Run the shared data-layer tests on macOS"
+	@echo "  set-version Write VERSION=x.y.z [BUILD=n] into Configuration/Version.xcconfig"
+	@echo "  clean       Remove Inspector derived data and generated packages"
+
+print-version:
+	@echo "$(APP_VERSION)"
+
+print-build-number:
+	@echo "$(BUILD_NUMBER)"
+
+print-deb-path:
+	@echo "$(DEB_OUTPUT)"
+
+set-version:
+	@test -n "$(VERSION)" || { echo "usage: make set-version VERSION=1.2.3 [BUILD=42]" >&2; exit 64; }
+	@"$(VERSION_APPLIER)" "$(VERSION)" $(BUILD)
+
+check:
+	@command -v xcodebuild >/dev/null || { echo "error: xcodebuild is required" >&2; exit 69; }
+	@command -v ldid >/dev/null || { echo "error: ldid is required" >&2; exit 69; }
+	@command -v dpkg-deb >/dev/null || { echo "error: dpkg-deb is required" >&2; exit 69; }
+	@test -d "$(PROJECT)" || { echo "error: Inspector.xcodeproj is missing" >&2; exit 66; }
+	@test -f "$(CONTROL_TEMPLATE)" || { echo "error: Debian control template is missing" >&2; exit 66; }
+	@test -x "$(DEB_PACKAGER)" || { echo "error: package-deb.sh is not executable" >&2; exit 66; }
+	@test -x "$(VERSION_APPLIER)" || { echo "error: apply-version.sh is not executable" >&2; exit 66; }
+	@for xcconfig in Version Base Development Release; do \
+		test -f "$(CONFIG_DIR)/$$xcconfig.xcconfig" || { echo "error: Configuration/$$xcconfig.xcconfig is missing" >&2; exit 66; }; \
+	done
+	@[[ "$(APP_VERSION)" =~ ^[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo "error: MARKETING_VERSION must look like 1.2.3, got '$(APP_VERSION)'" >&2; exit 65; }
+	@[[ "$(BUILD_NUMBER)" =~ ^[0-9]+$$ ]] || { echo "error: CURRENT_PROJECT_VERSION must be an integer, got '$(BUILD_NUMBER)'" >&2; exit 65; }
+	@grep -qE '(MARKETING_VERSION|CURRENT_PROJECT_VERSION) =' "$(PROJECT)/project.pbxproj" \
+		&& { echo "error: versions must live in Configuration/Version.xcconfig, not project.pbxproj" >&2; exit 65; } || true
+	@plutil -lint "$(ENTITLEMENTS)"
+	@plutil -lint "$(DAEMON_ENTITLEMENTS)" "$(CLI_ENTITLEMENTS)" "$(LAUNCH_DAEMON)"
+	@targets="$$(xcodebuild -project "$(PROJECT)" -list)"; \
+	grep -F "CocoaInspectord" <<<"$$targets" >/dev/null; \
+	grep -F "CocoaInspectorCLI" <<<"$$targets" >/dev/null; \
+	grep -F "Inspector" <<<"$$targets" >/dev/null
+
+harness:
+	@harness_bin="$$(mktemp /tmp/cocoainspector-harness.XXXXXX)"; \
+	trap 'rm -f "$$harness_bin"' EXIT; \
+	xcrun --sdk macosx swiftc -swift-version 5 "$(ROOT_DIR)"/Shared/*.swift "$(ROOT_DIR)/Tests/DataLayerHarness.swift" -o "$$harness_bin"; \
+	"$$harness_bin"
+
+build: check harness
+	XCBUILD_LABEL=build-ios $(XCODEBUILD) \
+		-configuration "$(CONFIGURATION)" \
+		-scheme "$(SCHEME)" \
+		-destination "generic/platform=iOS" \
+		build
+
+deb: build
+	"$(DEB_PACKAGER)" \
+		"$(APP_BUNDLE)" \
+		"$(DAEMON_BINARY)" \
+		"$(CLI_BINARY)" \
+		"$(CONTROL_TEMPLATE)" \
+		"$(ENTITLEMENTS)" \
+		"$(DAEMON_ENTITLEMENTS)" \
+		"$(CLI_ENTITLEMENTS)" \
+		"$(LAUNCH_DAEMON)" \
+		"$(DEB_OUTPUT)" \
+		"$(PACKAGE_ID)" \
+		"$(APP_VERSION)" \
+		"$(PACKAGE_ARCHITECTURE)"
+
+clean:
+	rm -rf "$(DERIVED_DATA)"
+	rm -rf "$(ROOT_DIR)/build/Packages"
