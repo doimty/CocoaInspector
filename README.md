@@ -10,7 +10,7 @@ License: [MIT](LICENSE).
 
 ## Requirements
 
-- macOS with Xcode (iOS 17 SDK)
+- macOS with Xcode 16 or newer (iOS 17 SDK); CI builds on the `macos-26` GitHub-hosted runner
 - `ldid`, `dpkg-deb` (for packaging)
 - A roothide jailbroken device to install and run the package
 

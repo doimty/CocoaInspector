@@ -9,7 +9,8 @@ iOS process inspector for roothide jailbreak: SwiftUI app (`Inspector/`), XPC da
 - `make harness` — run just the shared data-layer tests on macOS (fast; no device needed).
 - Build settings live in `Configuration/*.xcconfig`, not in `project.pbxproj`. `Configuration/Version.xcconfig` is the single source of the app, daemon, CLI, and `.deb` version — change it with `make set-version VERSION=1.2.3 [BUILD=n]`; `make check` fails if a version is hardcoded back into the project file.
 - Optional local overrides go in the git-ignored `Configuration/Developer*.xcconfig` files (for example `DEVELOPMENT_TEAM`). See `Configuration/Developer.xcconfig.example`.
-- Pushing a `vX.Y.Z` tag makes CI apply that version, build the package, and publish it to a GitHub release.
+- Pushing a `vX.Y.Z` tag makes CI apply that version, build the package, and publish it to a GitHub release. CI is a single job on the GitHub-hosted `macos-26` runner — build, package verification, and release all run there; no self-hosted machine.
+- `project.pbxproj` must keep `objectVersion = 77` so Xcode 16+ and the CI runner's Xcode can read it; newer Xcode betas rewrite it on GUI save, and `make check` fails when that happens — revert that line.
 - SourceKit/editor diagnostics in this repo are frequently stale false positives (`PBXFileSystemSynchronizedRootGroup`); trust `xcodebuild` output, not the editor.
 
 ## Install on a jailbroken device

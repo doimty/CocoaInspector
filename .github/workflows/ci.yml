@@ -16,11 +16,19 @@ concurrency:
   group: cocoa-inspector-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+
 jobs:
   build:
-    name: Build and verify Debian package
-    runs-on: [self-hosted, macos, arm64, mini-control]
-    timeout-minutes: 30
+    name: Build, verify, and release Debian package
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    permissions:
+      contents: write
 
     steps:
       - name: Configure build paths
@@ -34,7 +42,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install missing build dependencies
+      - name: Install packaging dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -111,46 +119,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Remove derived data
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          derived_data="${DERIVED_DATA:-}"
-          case "$derived_data" in
-            "$RUNNER_TEMP"/cocoa-inspector-*) rm -rf -- "$derived_data" ;;
-            *) echo "error: refusing to remove unexpected path: $derived_data" >&2; exit 64 ;;
-          esac
-
-  release:
-    name: Publish GitHub release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: [self-hosted, macos, arm64, mini-control]
-    timeout-minutes: 15
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download Debian package
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: CocoaInspector-${{ github.sha }}
-          path: release-assets
-
-      - name: Install missing release dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          formulae=()
-          command -v gh >/dev/null 2>&1 || formulae+=(gh)
-          command -v dpkg-deb >/dev/null 2>&1 || formulae+=(dpkg)
-          if (( ${#formulae[@]} > 0 )); then
-            brew install "${formulae[@]}"
-          fi
-
-      - name: Publish release
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -158,10 +128,10 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          deb_name="wiki.qaq.inspector_${version}_iphoneos-arm64e.deb"
-          deb_path="release-assets/$deb_name"
+          deb_path="$(make --no-print-directory print-deb-path)"
+          deb_name="$(basename "$deb_path")"
           test -f "$deb_path"
-          test -f release-assets/SHA256SUMS
+          test -f build/Packages/SHA256SUMS
           test "$(dpkg-deb -f "$deb_path" Version)" = "$version"
           sha256="$(shasum -a 256 "$deb_path" | awk '{print $1}')"
           notes="$(mktemp "${TMPDIR:-/tmp}/cocoa-inspector-notes.XXXXXX")"
@@ -177,17 +147,12 @@ jobs:
             echo "- Commit: \`$GITHUB_SHA\`"
           } >"$notes"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" --clobber "$deb_path" release-assets/SHA256SUMS
+            gh release upload "$GITHUB_REF_NAME" --clobber "$deb_path" build/Packages/SHA256SUMS
             gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
           else
             gh release create "$GITHUB_REF_NAME" \
               --verify-tag \
               --title "$GITHUB_REF_NAME" \
               --notes-file "$notes" \
-              "$deb_path" release-assets/SHA256SUMS
+              "$deb_path" build/Packages/SHA256SUMS
           fi
-
-      - name: Remove downloaded assets
-        if: always()
-        shell: bash
-        run: rm -rf -- release-assets

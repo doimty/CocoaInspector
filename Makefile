@@ -12,6 +12,7 @@ APP_BUNDLE          := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/
 DAEMON_BINARY       := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/cocoainspectord
 CLI_BINARY          := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/cocoainspector
 PACKAGE_ID          ?= wiki.qaq.inspector
+PROJECT_OBJECT_VERSION := 77
 PACKAGE_ARCHITECTURE ?= iphoneos-arm64e
 CONFIG_DIR          := $(ROOT_DIR)/Configuration
 VERSION_CONFIG      := $(CONFIG_DIR)/Version.xcconfig
@@ -90,6 +91,8 @@ check:
 	@[[ "$(BUILD_NUMBER)" =~ ^[0-9]+$$ ]] || { echo "error: CURRENT_PROJECT_VERSION must be an integer, got '$(BUILD_NUMBER)'" >&2; exit 65; }
 	@grep -qE '(MARKETING_VERSION|CURRENT_PROJECT_VERSION) =' "$(PROJECT)/project.pbxproj" \
 		&& { echo "error: versions must live in Configuration/Version.xcconfig, not project.pbxproj" >&2; exit 65; } || true
+	@objver="$$(sed -n 's/^[[:space:]]*objectVersion = \([0-9]*\);.*/\1/p' "$(PROJECT)/project.pbxproj")"; \
+		[[ "$$objver" == "$(PROJECT_OBJECT_VERSION)" ]] || { echo "error: project.pbxproj objectVersion must stay $(PROJECT_OBJECT_VERSION) so Xcode 16+ and the CI runner can read it, got '$$objver' (newer Xcode rewrites it on save)" >&2; exit 65; }
 	@plutil -lint "$(ENTITLEMENTS)"
 	@plutil -lint "$(DAEMON_ENTITLEMENTS)" "$(CLI_ENTITLEMENTS)" "$(LAUNCH_DAEMON)"
 	@targets="$$(xcodebuild -project "$(PROJECT)" -list)"; \
