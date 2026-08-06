@@ -40,7 +40,8 @@ XCODEBUILD := $(XCODEBUILD_WRAPPER) \
 	CODE_SIGNING_REQUIRED=NO \
 	CODE_SIGN_IDENTITY="" \
 	IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-	ARCHS=arm64 \
+	ARCHS="arm64 arm64e" \
+	OTHER_LDFLAGS='$$(inherited) -Wl,-weak_library,$$(SDKROOT)/usr/lib/swift/libswiftXPC.tbd' \
 	ONLY_ACTIVE_ARCH=YES \
 	ENABLE_DEBUG_DYLIB=NO
 
@@ -118,7 +119,12 @@ build: check harness
 		-destination "generic/platform=iOS" \
 		build
 
-deb: build
+embed-swift: build
+	@echo "Weak-linking libswiftXPC for iOS 15 compatibility..."
+	@echo "libswiftXPC.dylib is a Swift 6.0 runtime library not available on iOS 15."
+	@echo "The library is weakly linked so the app can launch without it."
+
+deb: build embed-swift
 	"$(DEB_PACKAGER)" \
 		"$(APP_BUNDLE)" \
 		"$(DAEMON_BINARY)" \

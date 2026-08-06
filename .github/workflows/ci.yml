@@ -93,9 +93,9 @@ jobs:
           test "$(dpkg-deb -f "$DEB_PATH" Version)" = "$(make --no-print-directory print-version)"
           test "$(dpkg-deb -f "$DEB_PATH" Architecture)" = "iphoneos-arm64e"
           dpkg-deb -f "$DEB_PATH" Depends | grep -F 'firmware (>= 15.0)'
-          test "$(lipo -archs "$APP_PATH/Inspector")" = "arm64"
-          test "$(lipo -archs "$DAEMON_PATH")" = "arm64"
-          test "$(lipo -archs "$CLI_PATH")" = "arm64"
+          test "$(lipo -archs "$APP_PATH/Inspector")" = "arm64 arm64e"
+          test "$(lipo -archs "$DAEMON_PATH")" = "arm64 arm64e"
+          test "$(lipo -archs "$CLI_PATH")" = "arm64 arm64e"
           for binary in "$APP_PATH/Inspector" "$DAEMON_PATH" "$CLI_PATH"; do
             xcrun vtool -show-build "$binary" | tee -a "$RUNNER_TEMP/cocoa-inspector-build-metadata.log"
             xcrun vtool -show-build "$binary" | grep -Eq 'minos[[:space:]]+15(\.0+)?$'
@@ -109,8 +109,12 @@ jobs:
           # The icon is present in the bundle if the app launches.
           test -d "$APP_PATH"
           test -f "$APP_PATH/Info.plist"
+          # libswiftXPC.dylib is weak-linked for iOS 15 compatibility
+          # (Swift 6.0 runtime library not available on iOS 15)
+          xcrun otool -arch arm64e -L "$APP_PATH/Inspector" 2>&1 | tail -20
           dpkg-deb --contents "$DEB_PATH" | grep -F './Applications/Inspector.app/Inspector'
           dpkg-deb --contents "$DEB_PATH" | grep -F './Applications/Inspector.app/'
+          dpkg-deb --contents "$DEB_PATH" | grep -F './Applications/Inspector.app/Inspector'
           dpkg-deb --contents "$DEB_PATH" | grep -F './usr/libexec/cocoainspectord'
           dpkg-deb --contents "$DEB_PATH" | grep -F './usr/bin/cocoainspector'
           dpkg-deb --contents "$DEB_PATH" | grep -F './Library/LaunchDaemons/wiki.qaq.cocoainspectord.plist'

@@ -3,6 +3,18 @@ import Dispatch
 import Foundation
 import XPC
 
+// Use a C-compatible block for XPC event handlers to avoid Swift closure
+// PAC signing issues on arm64e iOS 15 (Pointer Authentication Code failure
+// when Swift closures are bridged to ObjC blocks for xpc_connection_set_event_handler).
+private var sharedDaemonContext: DaemonServer?
+
+private let daemonListenerHandler: @convention(block) (xpc_object_t?) -> Void = { event in
+    guard let event else { return }
+    autoreleasepool {
+        sharedDaemonContext?.accept(event)
+    }
+}
+
 final class DaemonServer {
     private static let idleExitDelay: DispatchTimeInterval = .seconds(3)
 
@@ -36,12 +48,9 @@ final class DaemonServer {
             throw InspectorDataError.transportFailure
         }
         self.listener = listener
+        sharedDaemonContext = self
 
-        xpc_connection_set_event_handler(listener) { [weak self] event in
-            autoreleasepool {
-                self?.accept(event)
-            }
-        }
+        xpc_connection_set_event_handler(listener, daemonListenerHandler)
         xpc_connection_activate(listener)
     }
 

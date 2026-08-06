@@ -2,6 +2,9 @@ import Dispatch
 import Foundation
 import XPC
 
+// Use C-compatible XPC event handler blocks to avoid Swift closure PAC
+// signing issues on arm64e iOS 15.
+
 @_silgen_name("xpc_connection_create_mach_service")
 private func inspectorCreateMachServiceConnection(
     _ name: UnsafePointer<CChar>,
@@ -42,10 +45,14 @@ actor InspectorDataClient {
         let currentGeneration = generation
         self.connection = connection
         state = .connected
-        xpc_connection_set_event_handler(connection) { [weak self] event in
+
+        let handler: @convention(block) (xpc_object_t) -> Void = { event in
             guard xpc_get_type(event) == XPC_TYPE_ERROR else { return }
-            Task { await self?.disconnect(generation: currentGeneration) }
+            Task { [weak self] in
+                await self?.disconnect(generation: currentGeneration)
+            }
         }
+        xpc_connection_set_event_handler(connection, handler)
         xpc_connection_activate(connection)
 
         do {
