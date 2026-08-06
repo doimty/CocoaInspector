@@ -19,17 +19,17 @@ enum ProcessDetailSortOrder: String, CaseIterable, Identifiable {
     // the menu shows and is translated.
     var label: String {
         switch self {
-        case .cpu: String(localized: "CPU Usage")
-        case .priority: String(localized: "Priority")
-        case .state: String(localized: "State")
-        case .name: String(localized: "Name")
-        case .descriptor: String(localized: "File Descriptor")
-        case .fileKind: String(localized: "Kind")
-        case .port: String(localized: "Port Name")
-        case .rights: String(localized: "Rights")
-        case .references: String(localized: "References")
-        case .address: String(localized: "Address")
-        case .size: String(localized: "Size")
+        case .cpu: InspectorLocalization.text("CPU Usage")
+        case .priority: InspectorLocalization.text("Priority")
+        case .state: InspectorLocalization.text("State")
+        case .name: InspectorLocalization.text("Name")
+        case .descriptor: InspectorLocalization.text("File Descriptor")
+        case .fileKind: InspectorLocalization.text("Kind")
+        case .port: InspectorLocalization.text("Port Name")
+        case .rights: InspectorLocalization.text("Rights")
+        case .references: InspectorLocalization.text("References")
+        case .address: InspectorLocalization.text("Address")
+        case .size: InspectorLocalization.text("Size")
         }
     }
 
@@ -317,7 +317,7 @@ enum ProcessDetailExport {
         process: String,
         records: ProcessDetailRecords
     ) -> String {
-        var lines = ["\(title) — \(process)", String(localized: "\(records.count) in total"), ""]
+        var lines = ["\(title) — \(process)", InspectorLocalization.format("%lld in total", Int64(records.count)), ""]
         lines += records.threads.map(line(thread:))
         lines += records.files.map(line(file:))
         lines += records.ports.map(line(port:))

@@ -4,7 +4,7 @@ import UIKit
 struct ProcessDetailView: View {
     let row: ProcessRow
 
-    @Environment(ProcessListModel.self) private var model
+    @EnvironmentObject private var model: ProcessListModel
     @Environment(\.dismiss) private var dismiss
     @State private var summary: ProcessDetailSnapshot?
     @State private var summaryFailure: String?
@@ -40,7 +40,7 @@ struct ProcessDetailView: View {
         .navigationTitle(row.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { optionsMenu }
+            ToolbarItem(placement: .navigationBarTrailing) { optionsMenu }
         }
         .task { await loadSummary() }
         .refreshable { await loadSummary() }
@@ -56,10 +56,10 @@ struct ProcessDetailView: View {
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(exportFailure ?? String(localized: "Something unexpected went wrong."))
+            Text(exportFailure ?? InspectorLocalization.text("Something unexpected went wrong."))
         }
         .confirmationDialog(
-            String(localized: "Stop \(row.displayName)?"),
+            InspectorLocalization.format("Stop %@?", row.displayName),
             isPresented: $isConfirmingSignal,
             titleVisibility: .visible,
             presenting: pendingSignal
@@ -80,7 +80,7 @@ struct ProcessDetailView: View {
         .alert("Couldn’t Send the Signal", isPresented: $isShowingSignalFailure) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(signalFailure ?? String(localized: "Something unexpected went wrong."))
+            Text(signalFailure ?? InspectorLocalization.text("Something unexpected went wrong."))
         }
     }
 
@@ -120,33 +120,39 @@ struct ProcessDetailView: View {
 
     private var overviewSection: some View {
         Section {
-            LabeledContent("PID", value: String(record.pid))
-            LabeledContent("Started By (PPID)", value: String(record.parentPID))
-            LabeledContent("Running As", value: InspectorFormat.user(record.userID))
-            LabeledContent(
+            InspectorLabeledContent("PID", value: String(record.pid))
+            InspectorLabeledContent("Started By (PPID)", value: String(record.parentPID))
+            InspectorLabeledContent("Running As", value: InspectorFormat.user(record.userID))
+            InspectorLabeledContent(
                 "Threads",
-                value: String(
-                    localized: "\(Int(stats.threadCount)) (\(Int(stats.runningThreadCount)) running)"
+                value: InspectorLocalization.format(
+                    "%lld (%lld running)",
+                    Int64(stats.threadCount),
+                    Int64(stats.runningThreadCount)
                 )
             )
-            LabeledContent(
+            InspectorLabeledContent(
                 "Priority",
-                value: String(
-                    localized: "\(Int(record.priority)) (base \(Int(record.basePriority)))"
+                value: InspectorLocalization.format(
+                    "%lld (base %lld)",
+                    Int64(record.priority),
+                    Int64(record.basePriority)
                 )
             )
-            LabeledContent("Nice Value", value: String(record.nice))
-            LabeledContent("Sandbox", value: InspectorFormat.sandbox(record.sandboxStatus))
+            InspectorLabeledContent("Nice Value", value: String(record.nice))
+            InspectorLabeledContent("Sandbox", value: InspectorFormat.sandbox(record.sandboxStatus))
             if record.availability.contains(.fileDescriptors) {
-                LabeledContent(
+                InspectorLabeledContent(
                     "Open Files",
-                    value: String(
-                        localized: "\(Int(record.fileDescriptorCount)) (\(Int(record.socketCount)) sockets)"
+                    value: InspectorLocalization.format(
+                        "%lld (%lld sockets)",
+                        Int64(record.fileDescriptorCount),
+                        Int64(record.socketCount)
                     )
                 )
             }
             if record.availability.contains(.ports) {
-                LabeledContent("Mach Ports", value: String(record.portCount))
+                InspectorLabeledContent("Mach Ports", value: String(record.portCount))
             }
         } header: {
             Text("Overview")
@@ -161,8 +167,8 @@ struct ProcessDetailView: View {
 
     private var resourceSection: some View {
         Section("Resource Use") {
-            LabeledContent("CPU", value: InspectorFormat.percent(liveRow?.cpuFraction ?? 0))
-            LabeledContent(
+            InspectorLabeledContent("CPU", value: InspectorFormat.percent(liveRow?.cpuFraction ?? 0))
+            InspectorLabeledContent(
                 "Total CPU Time",
                 value: InspectorFormat.cpuTime(
                     stats.totalCPUTime,
@@ -170,14 +176,14 @@ struct ProcessDetailView: View {
                     denominator: model.machTimebaseDenominator
                 )
             )
-            LabeledContent("Memory Footprint", value: InspectorFormat.bytes(stats.physicalFootprint))
-            LabeledContent("Resident Memory", value: InspectorFormat.bytes(stats.residentSize))
-            LabeledContent("Virtual Memory", value: InspectorFormat.bytes(stats.virtualSize))
-            LabeledContent("Read from Disk", value: InspectorFormat.bytes(stats.diskBytesRead))
-            LabeledContent("Written to Disk", value: InspectorFormat.bytes(stats.diskBytesWritten))
+            InspectorLabeledContent("Memory Footprint", value: InspectorFormat.bytes(stats.physicalFootprint))
+            InspectorLabeledContent("Resident Memory", value: InspectorFormat.bytes(stats.residentSize))
+            InspectorLabeledContent("Virtual Memory", value: InspectorFormat.bytes(stats.virtualSize))
+            InspectorLabeledContent("Read from Disk", value: InspectorFormat.bytes(stats.diskBytesRead))
+            InspectorLabeledContent("Written to Disk", value: InspectorFormat.bytes(stats.diskBytesWritten))
             if record.availability.contains(.network) {
-                LabeledContent("Downloaded", value: InspectorFormat.bytes(record.networkBytesReceived))
-                LabeledContent("Uploaded", value: InspectorFormat.bytes(record.networkBytesSent))
+                InspectorLabeledContent("Downloaded", value: InspectorFormat.bytes(record.networkBytesReceived))
+                InspectorLabeledContent("Uploaded", value: InspectorFormat.bytes(record.networkBytesSent))
             }
         }
     }
@@ -202,18 +208,18 @@ struct ProcessDetailView: View {
     @ViewBuilder private var bundleSection: some View {
         if let bundle = summary?.bundle {
             Section("App Bundle") {
-                LabeledContent("Bundle ID", value: bundle.identifier)
+                InspectorLabeledContent("Bundle ID", value: bundle.identifier)
                 if !bundle.displayName.isEmpty {
-                    LabeledContent("Display Name", value: bundle.displayName)
+                    InspectorLabeledContent("Display Name", value: bundle.displayName)
                 }
                 if !bundle.version.isEmpty {
-                    LabeledContent("Version", value: bundle.version)
+                    InspectorLabeledContent("Version", value: bundle.version)
                 }
                 if !bundle.minimumOSVersion.isEmpty {
-                    LabeledContent("Requires iOS", value: bundle.minimumOSVersion)
+                    InspectorLabeledContent("Requires iOS", value: bundle.minimumOSVersion)
                 }
                 if !bundle.SDKName.isEmpty {
-                    LabeledContent("SDK", value: bundle.SDKName)
+                    InspectorLabeledContent("SDK", value: bundle.SDKName)
                 }
             }
         }
@@ -243,7 +249,10 @@ struct ProcessDetailView: View {
             if result.status == .available || result.status == .partial {
                 summary = result
             } else {
-                summaryFailure = String(localized: "error \(Int(result.errorCode))")
+                summaryFailure = InspectorLocalization.format(
+                    "error %lld",
+                    Int64(result.errorCode)
+                )
             }
         } catch {
             summaryFailure = InspectorErrorText.describe(error)

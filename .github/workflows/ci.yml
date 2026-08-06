@@ -24,7 +24,7 @@ env:
 jobs:
   build:
     name: Build, verify, and release Debian package
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 60
 
     permissions:
@@ -41,6 +41,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Select pinned Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 16.4"
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = "18.5"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
 
       - name: Install packaging dependencies
         shell: bash
@@ -61,9 +71,11 @@ jobs:
           ./Scripts/apply-version.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER"
 
       - name: Build Debian package with Xcode
+        shell: bash
         run: |
-          xcodebuild -version
-          make deb CONFIGURATION=Release DERIVED_DATA="$DERIVED_DATA"
+          set -euo pipefail
+          make deb CONFIGURATION=Release DERIVED_DATA="$DERIVED_DATA" \
+            2>&1 | tee "$RUNNER_TEMP/cocoa-inspector-build.log"
 
       - name: Verify Debian package
         shell: bash
@@ -80,9 +92,18 @@ jobs:
           test "$(dpkg-deb -f "$DEB_PATH" Package)" = "wiki.qaq.inspector"
           test "$(dpkg-deb -f "$DEB_PATH" Version)" = "$(make --no-print-directory print-version)"
           test "$(dpkg-deb -f "$DEB_PATH" Architecture)" = "iphoneos-arm64e"
+          dpkg-deb -f "$DEB_PATH" Depends | grep -F 'firmware (>= 15.0)'
           test "$(lipo -archs "$APP_PATH/Inspector")" = "arm64"
           test "$(lipo -archs "$DAEMON_PATH")" = "arm64"
           test "$(lipo -archs "$CLI_PATH")" = "arm64"
+          for binary in "$APP_PATH/Inspector" "$DAEMON_PATH" "$CLI_PATH"; do
+            xcrun vtool -show-build "$binary" | tee -a "$RUNNER_TEMP/cocoa-inspector-build-metadata.log"
+            xcrun vtool -show-build "$binary" | grep -Eq 'minos[[:space:]]+15(\.0+)?$'
+          done
+          if grep -iF 'incompatible arm64e' "$RUNNER_TEMP/cocoa-inspector-build.log"; then
+            echo 'error: build log contains an incompatible arm64e warning' >&2
+            exit 1
+          fi
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$APP_PATH/Info.plist")" = "AppIcon"
           test "$(sips -g pixelWidth "$APP_PATH/AppIcon60x60@2x.png" 2>/dev/null | awk '/pixelWidth:/ {print $2}')" = "120"
           test "$(sips -g pixelHeight "$APP_PATH/AppIcon60x60@2x.png" 2>/dev/null | awk '/pixelHeight:/ {print $2}')" = "120"

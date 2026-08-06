@@ -10,16 +10,17 @@ License: [MIT](LICENSE).
 
 ## Requirements
 
-- macOS with Xcode 16 or newer (iOS 17 SDK); CI builds on the `macos-26` GitHub-hosted runner
+- macOS with Xcode 16.4 (the project format requires Xcode 16); CI pins Xcode 16.4 on `macos-15`
 - `ldid`, `dpkg-deb` (for packaging)
-- A roothide jailbroken device to install and run the package
+- A roothide jailbroken device running iOS 15.0 or later
 
 ## Build
 
 ```sh
-make build    # check + macOS harness + unsigned iOS targets
-make deb      # build, ad-hoc sign, package iphoneos-arm64e .deb
-make harness  # shared data-layer tests on macOS only
+make compatibility  # source and metadata checks for the iOS 15 runtime floor
+make build          # check + macOS harness + unsigned iOS targets
+make deb            # build, ad-hoc sign, package iphoneos-arm64e .deb
+make harness        # shared data-layer tests on macOS only
 ```
 
 `make deb` writes the package under `build/Packages`. Path helper: `make print-deb-path`.

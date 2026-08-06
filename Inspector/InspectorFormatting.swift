@@ -1,8 +1,22 @@
 import Foundation
 
+enum InspectorLocalization {
+    static func text(_ key: String) -> String {
+        NSLocalizedString(key, comment: "")
+    }
+
+    static func format(_ key: String, _ argument: CVarArg) -> String {
+        String.localizedStringWithFormat(text(key), argument)
+    }
+
+    static func format(_ key: String, _ first: CVarArg, _ second: CVarArg) -> String {
+        String.localizedStringWithFormat(text(key), first, second)
+    }
+}
+
 enum InspectorFormat {
     static func bytes(_ value: UInt64) -> String {
-        Int64(clamping: value).formatted(.byteCount(style: .memory))
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: value), countStyle: .memory)
     }
 
     static func percent(_ fraction: Double) -> String {
@@ -27,9 +41,13 @@ enum InspectorFormat {
         let days = total / 86_400
         let hours = (total % 86_400) / 3_600
         let minutes = (total % 3_600) / 60
-        if days > 0 { return String(localized: "\(days)d \(hours)h") }
-        if hours > 0 { return String(localized: "\(hours)h \(minutes)m") }
-        return String(localized: "\(minutes)m")
+        if days > 0 {
+            return InspectorLocalization.format("%lldd %lldh", Int64(days), Int64(hours))
+        }
+        if hours > 0 {
+            return InspectorLocalization.format("%lldh %lldm", Int64(hours), Int64(minutes))
+        }
+        return InspectorLocalization.format("%lldm", Int64(minutes))
     }
 
     static func user(_ uid: UInt32) -> String {
@@ -42,29 +60,29 @@ enum InspectorFormat {
 
     static func sandbox(_ status: ProcessSandboxStatus) -> String {
         switch status {
-        case .unavailable: String(localized: "Unknown")
-        case .unrestricted: String(localized: "Unrestricted")
-        case .sandboxed: String(localized: "Sandboxed")
+        case .unavailable: InspectorLocalization.text("Unknown")
+        case .unrestricted: InspectorLocalization.text("Unrestricted")
+        case .sandboxed: InspectorLocalization.text("Sandboxed")
         }
     }
 
     static func threadState(_ runState: Int32) -> String {
         switch runState {
-        case 1: String(localized: "Running")
-        case 2: String(localized: "Stopped")
-        case 3: String(localized: "Waiting")
-        case 4: String(localized: "Uninterruptible")
-        case 5: String(localized: "Halted")
-        default: String(localized: "State \(Int(runState))")
+        case 1: InspectorLocalization.text("Running")
+        case 2: InspectorLocalization.text("Stopped")
+        case 3: InspectorLocalization.text("Waiting")
+        case 4: InspectorLocalization.text("Uninterruptible")
+        case 5: InspectorLocalization.text("Halted")
+        default: InspectorLocalization.format("State %lld", Int64(runState))
         }
     }
 
     static func fileKind(_ kind: FileDescriptorKind) -> String {
         switch kind {
-        case .vnode: String(localized: "File")
-        case .socket: String(localized: "Socket")
-        case .kqueue: String(localized: "Kqueue")
-        case .pipe: String(localized: "Pipe")
+        case .vnode: InspectorLocalization.text("File")
+        case .socket: InspectorLocalization.text("Socket")
+        case .kqueue: InspectorLocalization.text("Kqueue")
+        case .pipe: InspectorLocalization.text("Pipe")
         }
     }
 
@@ -94,37 +112,37 @@ enum InspectorFormat {
 enum InspectorErrorText {
     static func describe(_ error: Error) -> String {
         guard let error = error as? InspectorDataError else {
-            return String(localized: "Something unexpected went wrong.")
+            return InspectorLocalization.text("Something unexpected went wrong.")
         }
         switch error {
         case .disconnected:
-            return String(localized: "Lost the connection to the inspector service.")
+            return InspectorLocalization.text("Lost the connection to the inspector service.")
         case .alreadyActive:
-            return String(localized: "This session is already running.")
+            return InspectorLocalization.text("This session is already running.")
         case .busy:
-            return String(localized: "Another request is still finishing.")
+            return InspectorLocalization.text("Another request is still finishing.")
         case .invalidReply:
-            return String(localized: "The inspector service sent an unexpected reply.")
+            return InspectorLocalization.text("The inspector service sent an unexpected reply.")
         case .transportFailure:
-            return String(localized: "Couldn’t reach the inspector service.")
+            return InspectorLocalization.text("Couldn’t reach the inspector service.")
         case .malformedSnapshot:
-            return String(localized: "The process data couldn’t be read.")
+            return InspectorLocalization.text("The process data couldn’t be read.")
         case .rejected(let code):
             switch code {
             case .success:
-                return String(localized: "Done.")
+                return InspectorLocalization.text("Done.")
             case .invalidRequest:
-                return String(localized: "The inspector service turned down this request.")
+                return InspectorLocalization.text("The inspector service turned down this request.")
             case .foregroundLeaseRequired:
-                return String(localized: "The session timed out. Please try again.")
+                return InspectorLocalization.text("The session timed out. Please try again.")
             case .busy:
-                return String(localized: "The inspector service is busy right now.")
+                return InspectorLocalization.text("The inspector service is busy right now.")
             case .targetChanged:
-                return String(localized: "This process has ended or changed.")
+                return InspectorLocalization.text("This process has ended or changed.")
             case .ticketExpired:
-                return String(localized: "That took too long. Please try again.")
+                return InspectorLocalization.text("That took too long. Please try again.")
             case .operationFailed:
-                return String(localized: "The inspector service couldn’t complete this.")
+                return InspectorLocalization.text("The inspector service couldn’t complete this.")
             }
         }
     }

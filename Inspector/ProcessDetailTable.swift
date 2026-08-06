@@ -159,59 +159,59 @@ extension DetailRowInspection {
     init(thread: ThreadRecord) {
         id = "thread-\(thread.id)"
         title = thread.name.isEmpty
-            ? String(localized: "Thread \(InspectorFormat.hex(thread.id))")
+            ? InspectorLocalization.format("Thread %@", InspectorFormat.hex(thread.id))
             : thread.name
         fields = [
-            DetailField(label: String(localized: "Thread ID"), value: InspectorFormat.hex(thread.id), isMonospaced: true),
-            DetailField(label: String(localized: "State"), value: InspectorFormat.threadState(thread.runState)),
-            DetailField(label: String(localized: "CPU Usage"),
+            DetailField(label: InspectorLocalization.text("Thread ID"), value: InspectorFormat.hex(thread.id), isMonospaced: true),
+            DetailField(label: InspectorLocalization.text("State"), value: InspectorFormat.threadState(thread.runState)),
+            DetailField(label: InspectorLocalization.text("CPU Usage"),
                 value: String(format: "%.1f%%", Double(thread.cpuUsage) / 10)
             ),
-            DetailField(label: String(localized: "Priority"), value: "\(thread.currentPriority)"),
-            DetailField(label: String(localized: "Base Priority"), value: "\(thread.basePriority)"),
-            DetailField(label: String(localized: "Maximum Priority"), value: "\(thread.maximumPriority)"),
-            DetailField(label: String(localized: "Scheduling Policy"), value: "\(thread.policy)"),
-            DetailField(label: String(localized: "Sleeping For"), value: "\(thread.sleepTime)"),
+            DetailField(label: InspectorLocalization.text("Priority"), value: "\(thread.currentPriority)"),
+            DetailField(label: InspectorLocalization.text("Base Priority"), value: "\(thread.basePriority)"),
+            DetailField(label: InspectorLocalization.text("Maximum Priority"), value: "\(thread.maximumPriority)"),
+            DetailField(label: InspectorLocalization.text("Scheduling Policy"), value: "\(thread.policy)"),
+            DetailField(label: InspectorLocalization.text("Sleeping For"), value: "\(thread.sleepTime)"),
         ]
     }
 
     init(file: FileDescriptorRecord) {
         id = "file-\(file.descriptor)"
-        title = String(localized: "File Descriptor \(file.descriptor)")
+        title = InspectorLocalization.format("File Descriptor %lld", Int64(file.descriptor))
         var fields = [
-            DetailField(label: String(localized: "Kind"), value: InspectorFormat.fileKind(file.kind)),
+            DetailField(label: InspectorLocalization.text("Kind"), value: InspectorFormat.fileKind(file.kind)),
         ]
         if !file.path.isEmpty {
-            fields.append(DetailField(label: String(localized: "Path"), value: file.path, isMonospaced: true))
+            fields.append(DetailField(label: InspectorLocalization.text("Path"), value: file.path, isMonospaced: true))
         }
         if !file.localAddress.isEmpty {
             fields.append(
-                DetailField(label: String(localized: "Local Address"), value: file.localAddress, isMonospaced: true)
+                DetailField(label: InspectorLocalization.text("Local Address"), value: file.localAddress, isMonospaced: true)
             )
         }
         if !file.remoteAddress.isEmpty {
             fields.append(
-                DetailField(label: String(localized: "Remote Address"), value: file.remoteAddress, isMonospaced: true)
+                DetailField(label: InspectorLocalization.text("Remote Address"), value: file.remoteAddress, isMonospaced: true)
             )
         }
         if !file.detail.isEmpty {
-            fields.append(DetailField(label: String(localized: "Detail"), value: file.detail))
+            fields.append(DetailField(label: InspectorLocalization.text("Detail"), value: file.detail))
         }
         fields.append(
-            DetailField(label: String(localized: "Open Flags"),
+            DetailField(label: InspectorLocalization.text("Open Flags"),
                 value: InspectorFormat.hex(UInt64(file.openFlags)),
                 isMonospaced: true
             )
         )
         fields.append(
-            DetailField(label: String(localized: "Status"),
+            DetailField(label: InspectorLocalization.text("Status"),
                 value: InspectorFormat.hex(UInt64(file.status)),
                 isMonospaced: true
             )
         )
         if file.object != 0 {
             fields.append(
-                DetailField(label: String(localized: "Object"),
+                DetailField(label: InspectorLocalization.text("Object"),
                     value: InspectorFormat.hex(file.object),
                     isMonospaced: true
                 )
@@ -219,7 +219,7 @@ extension DetailRowInspection {
         }
         if file.peer != 0 {
             fields.append(
-                DetailField(label: String(localized: "Peer"), value: InspectorFormat.hex(file.peer), isMonospaced: true)
+                DetailField(label: InspectorLocalization.text("Peer"), value: InspectorFormat.hex(file.peer), isMonospaced: true)
             )
         }
         self.fields = fields
@@ -227,21 +227,21 @@ extension DetailRowInspection {
 
     init(port: MachPortRecord) {
         id = "port-\(port.name)"
-        title = String(localized: "Port \(InspectorFormat.hex(UInt64(port.name)))")
+        title = InspectorLocalization.format("Port %@", InspectorFormat.hex(UInt64(port.name)))
         var fields = [
-            DetailField(label: String(localized: "Rights"), value: InspectorFormat.portRights(port.rights)),
-            DetailField(label: String(localized: "References"), value: "\(port.userReferences)"),
-            DetailField(label: String(localized: "Object"),
+            DetailField(label: InspectorLocalization.text("Rights"), value: InspectorFormat.portRights(port.rights)),
+            DetailField(label: InspectorLocalization.text("References"), value: "\(port.userReferences)"),
+            DetailField(label: InspectorLocalization.text("Object"),
                 value: InspectorFormat.hex(UInt64(port.object)),
                 isMonospaced: true
             ),
         ]
         if port.objectType != 0 {
-            fields.append(DetailField(label: String(localized: "Kernel Object Type"), value: "\(port.objectType)"))
+            fields.append(DetailField(label: InspectorLocalization.text("Kernel Object Type"), value: "\(port.objectType)"))
         }
         if !port.setMembers.isEmpty {
             fields.append(
-                DetailField(label: String(localized: "Port Set Members"),
+                DetailField(label: InspectorLocalization.text("Port Set Members"),
                     value: port.setMembers
                         .map { InspectorFormat.hex(UInt64($0)) }
                         .joined(separator: ", "),
@@ -256,24 +256,24 @@ extension DetailRowInspection {
         id = "module-\(module.address)-\(module.path)"
         title = ProcessDetailRecords.moduleName(module)
         var fields = [
-            DetailField(label: String(localized: "Address"),
+            DetailField(label: InspectorLocalization.text("Address"),
                 value: InspectorFormat.hex(module.address),
                 isMonospaced: true
             ),
         ]
         if module.size > 0 {
             fields.append(
-                DetailField(label: String(localized: "Size"),
+                DetailField(label: InspectorLocalization.text("Size"),
                     value: "\(InspectorFormat.bytes(module.size)) (\(module.size) bytes)"
                 )
             )
         }
-        fields.append(DetailField(label: String(localized: "References"), value: "\(module.referenceCount)"))
+        fields.append(DetailField(label: InspectorLocalization.text("References"), value: "\(module.referenceCount)"))
         if !module.identifier.isEmpty {
-            fields.append(DetailField(label: String(localized: "Identifier"), value: module.identifier))
+            fields.append(DetailField(label: InspectorLocalization.text("Identifier"), value: module.identifier))
         }
         if !module.path.isEmpty {
-            fields.append(DetailField(label: String(localized: "Path"), value: module.path, isMonospaced: true))
+            fields.append(DetailField(label: InspectorLocalization.text("Path"), value: module.path, isMonospaced: true))
         }
         self.fields = fields
     }
@@ -303,7 +303,7 @@ struct DetailTableHeader: View {
                         maxWidth: .infinity,
                         alignment: Alignment(horizontal: column.alignment, vertical: .center)
                     )
-                    .contentShape(.rect)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(sort.order == column.order ? Color.accentColor : .secondary)

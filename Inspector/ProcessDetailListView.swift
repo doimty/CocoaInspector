@@ -1,3 +1,10 @@
+//
+//  ProcessDetailListView.swift
+//  Inspector
+//
+//  Created by qaq on 3/8/2026.
+//
+
 import SwiftUI
 import UIKit
 
@@ -5,16 +12,15 @@ struct ProcessDetailListView: View {
     let kind: ProcessDetailKind
     let identity: ProcessIdentity
 
-    @Environment(ProcessListModel.self) private var model
+    @EnvironmentObject private var model: ProcessListModel
     @State private var detail: ProcessDetailSnapshot?
-    // Filtering and sorting run once per load, query, or order change — never
-    // in a view body, which re-runs far more often than the data changes.
     @State private var visible = ProcessDetailRecords()
     @State private var failure: String?
     @State private var searchText = ""
     @State private var inspected: DetailRowInspection?
     @AppStorage private var sortOrder: ProcessDetailSortOrder
     @AppStorage private var sortAscending: Bool
+    @State private var sharePayload: InspectorSharePayload?
 
     private let columns: [DetailColumn]
 
@@ -22,7 +28,6 @@ struct ProcessDetailListView: View {
         self.kind = kind
         self.identity = identity
         columns = ProcessDetailTable.columns(for: kind)
-        // One stored order per kind: "sort by size" means nothing to threads.
         let fallback = ProcessDetailSort.default(for: kind)
         _sortOrder = AppStorage(
             wrappedValue: fallback.order,
@@ -47,21 +52,21 @@ struct ProcessDetailListView: View {
 
     private var title: String {
         switch kind {
-        case .summary: String(localized: "Overview")
-        case .threads: String(localized: "Threads")
-        case .files: String(localized: "Open Files")
-        case .ports: String(localized: "Mach Ports")
-        case .modules: String(localized: "Loaded Modules")
+        case .summary: InspectorLocalization.text("Overview")
+        case .threads: InspectorLocalization.text("Threads")
+        case .files: InspectorLocalization.text("Open Files")
+        case .ports: InspectorLocalization.text("Mach Ports")
+        case .modules: InspectorLocalization.text("Loaded Modules")
         }
     }
 
     private var searchPrompt: String {
         switch kind {
-        case .summary: String(localized: "Search")
-        case .threads: String(localized: "Search by name or thread ID")
-        case .files: String(localized: "Search by path or descriptor")
-        case .ports: String(localized: "Search by port name or rights")
-        case .modules: String(localized: "Search by name or path")
+        case .summary: InspectorLocalization.text("Search")
+        case .threads: InspectorLocalization.text("Search by name or thread ID")
+        case .files: InspectorLocalization.text("Search by path or descriptor")
+        case .ports: InspectorLocalization.text("Search by port name or rights")
+        case .modules: InspectorLocalization.text("Search by name or path")
         }
     }
 
@@ -75,34 +80,35 @@ struct ProcessDetailListView: View {
                 content(for: detail)
             }
         }
-        // Plain rows keep the header pinned to the top of the list while it
-        // scrolls, which is what makes this read as a table.
         .listStyle(.plain)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: searchPrompt)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { optionsMenu }
+            ToolbarItem(placement: .navigationBarTrailing) { optionsMenu }
         }
         .overlay { overlayContent }
         .sheet(item: $inspected) { RowInspectionSheet(inspection: $0) }
+        .sheet(item: $sharePayload) { payload in
+            InspectorActivityView(items: payload.items)
+        }
         .task { await load() }
         .refreshable { await load() }
-        .onChange(of: searchText) { rebuildVisible() }
-        .onChange(of: sort) { rebuildVisible() }
+        .onChange(of: searchText) { _ in rebuildVisible() }
+        .onChange(of: sort) { _ in rebuildVisible() }
     }
 
     @ViewBuilder private var optionsMenu: some View {
         Menu {
             if detail != nil {
-                ShareLink(
-                    item: ProcessDetailExport.text(
+                Button {
+                    let text = ProcessDetailExport.text(
                         title: title,
                         process: processName,
                         records: visible
-                    ),
-                    subject: Text("\(title) — \(processName)")
-                ) {
+                    )
+                    sharePayload = InspectorSharePayload(items: [text])
+                } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
                 .disabled(visible.isEmpty)
@@ -156,8 +162,6 @@ struct ProcessDetailListView: View {
         }
     }
 
-    // A row shows only what fits on one line; tapping it opens everything the
-    // record carries, including the full path.
     private func row(cells: [String], inspection: DetailRowInspection) -> some View {
         Button {
             inspected = inspection
@@ -173,7 +177,10 @@ struct ProcessDetailListView: View {
                 Text(count)
             }
             if detail.status == .partial {
-                Text("Some of this couldn’t be read (error \(detail.errorCode)).")
+                Text(InspectorLocalization.format(
+                    "Some of this couldn’t be read (error %lld).",
+                    Int64(detail.errorCode)
+                ))
             }
         }
         .padding(.top, 4)
@@ -183,24 +190,35 @@ struct ProcessDetailListView: View {
         let total = ProcessDetailRecords.total(in: detail, kind: kind)
         guard total > 0 else { return nil }
         return visible.count == total
-            ? String(localized: "\(total) in total")
-            : String(localized: "\(visible.count) of \(total) shown")
+            ? InspectorLocalization.format("%lld in total", Int64(total))
+            : InspectorLocalization.format(
+                "%lld of %lld shown",
+                Int64(visible.count),
+                Int64(total)
+            )
     }
 
     @ViewBuilder private var overlayContent: some View {
         if let failure {
-            ContentUnavailableView {
-                Label("Couldn’t Load This", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(failure)
-            } actions: {
-                Button("Try Again") { Task { await load() } }
-            }
+            InspectorUnavailableView(
+                title: "Couldn’t Load This",
+                systemImage: "exclamationmark.triangle",
+                message: failure,
+                actionTitle: "Try Again",
+                action: { Task { await load() } }
+            )
         } else if let detail {
             if ProcessDetailRecords.total(in: detail, kind: kind) == 0 {
-                ContentUnavailableView("Nothing Here Yet", systemImage: "tray")
+                InspectorUnavailableView(
+                    title: "Nothing Here Yet",
+                    systemImage: "tray"
+                )
             } else if visible.isEmpty {
-                ContentUnavailableView.search(text: searchText)
+                InspectorUnavailableView(
+                    title: "Nothing to Show",
+                    systemImage: "magnifyingglass",
+                    message: searchText
+                )
             }
         } else {
             ProgressView()
@@ -229,16 +247,18 @@ struct ProcessDetailListView: View {
                 detail = result
                 rebuildVisible()
             case .processExited:
-                failure = String(localized: "This process has ended.")
+                failure = InspectorLocalization.text("This process has ended.")
             case .permissionDenied:
-                failure = String(
-                    localized: "This app isn’t allowed to read that (error \(Int(result.errorCode)))."
+                failure = InspectorLocalization.format(
+                    "This app isn’t allowed to read that (error %lld).",
+                    Int64(result.errorCode)
                 )
             case .unsupported:
-                failure = String(localized: "This isn’t available on this device.")
+                failure = InspectorLocalization.text("This isn’t available on this device.")
             case .failed:
-                failure = String(
-                    localized: "Couldn’t read this data (error \(Int(result.errorCode)))."
+                failure = InspectorLocalization.format(
+                    "Couldn’t read this data (error %lld).",
+                    Int64(result.errorCode)
                 )
             }
         } catch {
@@ -253,7 +273,7 @@ private struct RowInspectionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             List {
                 ForEach(inspection.fields) { field in
                     VStack(alignment: .leading, spacing: 2) {
@@ -269,16 +289,18 @@ private struct RowInspectionSheet: View {
             .navigationTitle(inspection.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Copy", systemImage: "doc.on.doc") {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
                         UIPasteboard.general.string = inspection.text
+                    } label: {
+                        Image(systemName: "doc.on.doc")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }

@@ -30,10 +30,10 @@ enum ProcessSortOrder: String, CaseIterable, Identifiable {
     // the menu shows and is translated.
     var label: String {
         switch self {
-        case .cpu: String(localized: "CPU Usage")
-        case .memory: String(localized: "Memory Used")
-        case .pid: String(localized: "PID")
-        case .name: String(localized: "Name")
+        case .cpu: InspectorLocalization.text("CPU Usage")
+        case .memory: InspectorLocalization.text("Memory Used")
+        case .pid: InspectorLocalization.text("PID")
+        case .name: InspectorLocalization.text("Name")
         }
     }
 
@@ -77,10 +77,10 @@ enum ProcessScopeFilter: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .all: String(localized: "Everything")
-        case .root: String(localized: "System (root)")
-        case .mobile: String(localized: "User (mobile)")
-        case .apps: String(localized: "Apps")
+        case .all: InspectorLocalization.text("Everything")
+        case .root: InspectorLocalization.text("System (root)")
+        case .mobile: InspectorLocalization.text("User (mobile)")
+        case .apps: InspectorLocalization.text("Apps")
         }
     }
 
@@ -133,8 +133,7 @@ struct PreparedSample: Sendable {
 }
 
 @MainActor
-@Observable
-final class ProcessListModel {
+final class ProcessListModel: ObservableObject {
     enum Phase: Equatable {
         case idle
         case connecting
@@ -142,51 +141,40 @@ final class ProcessListModel {
         case failed(String)
     }
 
-    private(set) var phase: Phase = .idle
-    private(set) var rows: [ProcessRow] = []
+    private enum DefaultsKey {
+        static let sortOrder = "processList.sortOrder"
+        static let scopeFilter = "processList.scopeFilter"
+    }
+
+    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var rows: [ProcessRow] = []
     // Filtering and sorting happen once per sample or query change, never in a
     // view body — bodies re-run every second and must stay O(visible rows).
-    private(set) var visibleRows: [ProcessRow] = []
-    private(set) var system = SystemRecord()
-    private(set) var totalCPUFraction: Double = 0
-    private(set) var uptimeNanoseconds: UInt64 = 0
-    private(set) var machTimebaseNumerator: UInt32 = 1
-    private(set) var machTimebaseDenominator: UInt32 = 1
+    @Published private(set) var visibleRows: [ProcessRow] = []
+    @Published private(set) var system = SystemRecord()
+    @Published private(set) var totalCPUFraction: Double = 0
+    @Published private(set) var uptimeNanoseconds: UInt64 = 0
+    @Published private(set) var machTimebaseNumerator: UInt32 = 1
+    @Published private(set) var machTimebaseDenominator: UInt32 = 1
 
-    // @AppStorage owns persistence; access/withMutation re-attach Observation
-    // tracking that @ObservationIgnored (required for property wrappers in
-    // @Observable types) would otherwise sever.
-    @ObservationIgnored
-    @AppStorage("processList.sortOrder") private var storedSortOrder: ProcessSortOrder = .cpu
-    @ObservationIgnored
-    @AppStorage("processList.scopeFilter") private var storedScopeFilter: ProcessScopeFilter = .all
-
-    var sortOrder: ProcessSortOrder {
-        get {
-            access(keyPath: \.sortOrder)
-            return storedSortOrder
-        }
-        set {
-            withMutation(keyPath: \.sortOrder) { storedSortOrder = newValue }
+    @Published var sortOrder: ProcessSortOrder {
+        didSet {
+            UserDefaults.standard.set(sortOrder.rawValue, forKey: DefaultsKey.sortOrder)
             rebuildVisibleRows()
         }
     }
-    var scopeFilter: ProcessScopeFilter {
-        get {
-            access(keyPath: \.scopeFilter)
-            return storedScopeFilter
-        }
-        set {
-            withMutation(keyPath: \.scopeFilter) { storedScopeFilter = newValue }
+    @Published var scopeFilter: ProcessScopeFilter {
+        didSet {
+            UserDefaults.standard.set(scopeFilter.rawValue, forKey: DefaultsKey.scopeFilter)
             rebuildVisibleRows()
         }
     }
-    var searchText = "" {
+    @Published var searchText = "" {
         didSet { rebuildVisibleRows() }
     }
     // Pausing keeps the last snapshot on screen but releases the daemon (the
     // sampling loop deactivates on exit, so the foreground lease lapses).
-    var isPaused = false {
+    @Published var isPaused = false {
         didSet {
             if isPaused {
                 samplingTask?.cancel()
@@ -197,12 +185,19 @@ final class ProcessListModel {
     }
 
     private let session = ProcessDataSession()
-    // Observable (not @ObservationIgnored): the detail view's live lookups
-    // depend on this being tracked so each sample re-renders it.
-    private var rowsByIdentity: [ProcessIdentity: ProcessRow] = [:]
-    @ObservationIgnored private var shouldRun = false
-    @ObservationIgnored private var samplingTask: Task<Void, Never>?
-    @ObservationIgnored private var operationChain: Task<Void, Never> = Task {}
+    // Publishing the identity map keeps detail views live as samples arrive.
+    @Published private var rowsByIdentity: [ProcessIdentity: ProcessRow] = [:]
+    private var shouldRun = false
+    private var samplingTask: Task<Void, Never>?
+    private var operationChain: Task<Void, Never> = Task {}
+
+    init() {
+        let defaults = UserDefaults.standard
+        sortOrder = defaults.string(forKey: DefaultsKey.sortOrder)
+            .flatMap { ProcessSortOrder(rawValue: $0) } ?? .cpu
+        scopeFilter = defaults.string(forKey: DefaultsKey.scopeFilter)
+            .flatMap { ProcessScopeFilter(rawValue: $0) } ?? .all
+    }
 
     func row(for identity: ProcessIdentity) -> ProcessRow? {
         rowsByIdentity[identity]
@@ -262,7 +257,7 @@ final class ProcessListModel {
                     return PreparedSample(update: update, scope: scope, order: order, query: query)
                 }
                 apply(prepared)
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         } catch {
             if !Task.isCancelled {
@@ -301,7 +296,7 @@ final class ProcessListModel {
     // batch-update animations, which let taps land on rows mid-move and held
     // extra cells alive for the duration of each move.
     private func rebuildVisibleRows() {
-        withAnimation(.smooth) {
+        withAnimation(.easeInOut(duration: 0.2)) {
             visibleRows = Self.visibleRows(in: rows, scope: scopeFilter, order: sortOrder, query: searchText)
         }
     }

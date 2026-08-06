@@ -24,6 +24,7 @@ DEB_OUTPUT          ?= $(ROOT_DIR)/build/Packages/$(PACKAGE_ID)_$(APP_VERSION)_$
 XCODEBUILD_WRAPPER  := $(ROOT_DIR)/Scripts/run-xcodebuild.sh
 DEB_PACKAGER        := $(ROOT_DIR)/Scripts/package-deb.sh
 VERSION_APPLIER     := $(ROOT_DIR)/Scripts/apply-version.sh
+COMPATIBILITY_CHECK := $(ROOT_DIR)/Scripts/check-ios15-compatibility.sh
 CONTROL_TEMPLATE    := $(ROOT_DIR)/Packaging/DEBIAN/control
 ENTITLEMENTS        := $(ROOT_DIR)/Packaging/Inspector.entitlements
 DAEMON_ENTITLEMENTS := $(ROOT_DIR)/Packaging/CocoaInspectord.entitlements
@@ -38,7 +39,7 @@ XCODEBUILD := $(XCODEBUILD_WRAPPER) \
 	CODE_SIGNING_ALLOWED=NO \
 	CODE_SIGNING_REQUIRED=NO \
 	CODE_SIGN_IDENTITY="" \
-	IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+	IPHONEOS_DEPLOYMENT_TARGET=15.0 \
 	ARCHS=arm64 \
 	ONLY_ACTIVE_ARCH=YES \
 	ENABLE_DEBUG_DYLIB=NO
@@ -50,7 +51,7 @@ ifeq ($(BUILD_NUMBER),)
 $(error CURRENT_PROJECT_VERSION is missing from Configuration/Version.xcconfig)
 endif
 
-.PHONY: all help print-version print-build-number print-deb-path set-version check harness build deb clean
+.PHONY: all help print-version print-build-number print-deb-path set-version compatibility check harness build deb clean
 
 all: deb
 
@@ -58,8 +59,9 @@ help:
 	@echo "Inspector:"
 	@echo "  build       Build the unsigned Inspector.app for iPhoneOS"
 	@echo "  deb         Build, ad-hoc sign, and package the roothide .deb"
-	@echo "  check       Validate the Xcode project and packaging inputs"
-	@echo "  harness     Run the shared data-layer tests on macOS"
+	@echo "  compatibility  Check the source and metadata for iOS 15 support"
+	@echo "  check          Validate the Xcode project and packaging inputs"
+	@echo "  harness        Run the shared data-layer tests on macOS"
 	@echo "  set-version Write VERSION=x.y.z [BUILD=n] into Configuration/Version.xcconfig"
 	@echo "  clean       Remove Inspector derived data and generated packages"
 
@@ -76,7 +78,10 @@ set-version:
 	@test -n "$(VERSION)" || { echo "usage: make set-version VERSION=1.2.3 [BUILD=42]" >&2; exit 64; }
 	@"$(VERSION_APPLIER)" "$(VERSION)" $(BUILD)
 
-check:
+compatibility:
+	@"$(COMPATIBILITY_CHECK)"
+
+check: compatibility
 	@command -v xcodebuild >/dev/null || { echo "error: xcodebuild is required" >&2; exit 69; }
 	@command -v ldid >/dev/null || { echo "error: ldid is required" >&2; exit 69; }
 	@command -v dpkg-deb >/dev/null || { echo "error: dpkg-deb is required" >&2; exit 69; }
