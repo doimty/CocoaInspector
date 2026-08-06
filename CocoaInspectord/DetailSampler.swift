@@ -337,17 +337,17 @@ final class DetailSampler {
         for index in 0..<Int(tableCount) {
             autoreleasepool {
                 let info = table[index]
-                var objectType = ipc_info_object_type_t(rawValue: 0)!
+                var objectType: UInt32 = 0
                 var objectAddress: mach_vm_address_t = 0
-                if mach_port_kobject(task, info.iin_name, &objectType, &objectAddress) != KERN_SUCCESS {
-                    objectType = ipc_info_object_type_t(rawValue: 0)!
+                if mach_port_object_type(task, info.iin_name, &objectType, &objectAddress) != KERN_SUCCESS {
+                    objectType = 0
                 }
                 records.append(MachPortRecord(
                     name: info.iin_name,
                     rights: info.iin_type,
                     userReferences: info.iin_urefs,
                     object: info.iin_object,
-                    objectType: UInt32(objectType.rawValue),
+                    objectType: objectType,
                     setMembers: portSetMembers(task: task, name: info.iin_name, rights: info.iin_type)
                 ))
             }

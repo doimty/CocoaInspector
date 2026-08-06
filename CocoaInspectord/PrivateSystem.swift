@@ -29,6 +29,14 @@ func inspectorProcListAllPIDs(_ buffer: UnsafeMutableRawPointer?, _ size: Int32)
 @_silgen_name("proc_name")
 func inspectorProcName(_ pid: Int32, _ buffer: UnsafeMutableRawPointer, _ size: UInt32) -> Int32
 
+@_silgen_name("mach_port_object_type")
+func mach_port_object_type(
+    _ task: task_t,
+    _ name: mach_port_name_t,
+    _ objectType: UnsafeMutablePointer<UInt32>?,
+    _ objectAddr: UnsafeMutablePointer<mach_vm_address_t>?
+) -> kern_return_t
+
 @_silgen_name("proc_pidpath")
 func inspectorProcPIDPath(_ pid: Int32, _ buffer: UnsafeMutableRawPointer, _ size: UInt32) -> Int32
 
