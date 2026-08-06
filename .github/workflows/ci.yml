@@ -104,7 +104,7 @@ jobs:
             echo 'error: build log contains an incompatible arm64e warning' >&2
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$APP_PATH/Info.plist")" = "AppIcon"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP_PATH/Info.plist" 2>/dev/null || echo none)" = "AppIcon"
           test "$(sips -g pixelWidth "$APP_PATH/AppIcon60x60@2x.png" 2>/dev/null | awk '/pixelWidth:/ {print $2}')" = "120"
           test "$(sips -g pixelHeight "$APP_PATH/AppIcon60x60@2x.png" 2>/dev/null | awk '/pixelHeight:/ {print $2}')" = "120"
           test "$(sips -g pixelWidth "$APP_PATH/AppIcon76x76@2x~ipad.png" 2>/dev/null | awk '/pixelWidth:/ {print $2}')" = "152"
