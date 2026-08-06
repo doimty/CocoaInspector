@@ -27,3 +27,4 @@ Configuration/Developer*.xcconfig
 .swiftpm/xcode/package.xcworkspace/xcuserdata/
 .docs/
 .tmp/
+.git

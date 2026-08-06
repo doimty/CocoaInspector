@@ -9,15 +9,14 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
-    @State private var model = ProcessListModel()
+    @StateObject private var model = ProcessListModel()
     @State private var signalTarget: ProcessRow?
     @State private var signalFailure: String?
     @State private var isShowingSignalFailure = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        @Bindable var model = model
-        NavigationStack {
+        NavigationView {
             List {
                 processSection
                 creditsSection
@@ -26,12 +25,13 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $model.searchText, prompt: "Search by name or PID")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { systemMenu }
-                ToolbarItem(placement: .topBarTrailing) { actionsMenu }
+                ToolbarItem(placement: .navigationBarLeading) { systemMenu }
+                ToolbarItem(placement: .navigationBarTrailing) { actionsMenu }
             }
             .overlay { overlayContent }
         }
-        .environment(model)
+        .navigationViewStyle(StackNavigationViewStyle())
+        .environmentObject(model)
         // Guarded on the scene being active: a locked-screen launch (uiopen,
         // prewarming) lands here with scenePhase already .background, so the
         // .background case below never fires and an unconditional start would
@@ -40,7 +40,7 @@ struct ContentView: View {
         .onAppear {
             if scenePhase == .active { model.start() }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             switch phase {
             case .active: model.start()
             case .background: model.stop()
@@ -48,8 +48,8 @@ struct ContentView: View {
             }
         }
         .confirmationDialog(
-            signalTarget.map { String(localized: "Stop \($0.displayName)?") }
-                ?? String(localized: "Stop This Process?"),
+            signalTarget.map { InspectorLocalization.format("Stop %@?", $0.displayName) }
+                ?? InspectorLocalization.text("Stop This Process?"),
             isPresented: Binding(
                 get: { signalTarget != nil },
                 set: { if !$0 { signalTarget = nil } }
@@ -69,7 +69,7 @@ struct ContentView: View {
         .alert("Couldn’t Send the Signal", isPresented: $isShowingSignalFailure) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(signalFailure ?? String(localized: "Something unexpected went wrong."))
+            Text(signalFailure ?? InspectorLocalization.text("Something unexpected went wrong."))
         }
     }
 
@@ -93,39 +93,43 @@ struct ContentView: View {
 
     // Title + value render as a two-line menu item; tapping copies the stat.
     private func copyableStat(
-        _ title: LocalizedStringResource,
+        _ title: String,
         _ value: String,
         icon: String
     ) -> some View {
         Button {
-            UIPasteboard.general.string = "\(String(localized: title)): \(value)"
+            UIPasteboard.general.string = "\(InspectorLocalization.text(title)): \(value)"
         } label: {
-            Text(title)
-            Text(value)
-            Image(systemName: icon)
+            Label {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(LocalizedStringKey(title))
+                    Text(value)
+                }
+            } icon: {
+                Image(systemName: icon)
+            }
         }
     }
 
     private var actionsMenu: some View {
-        @Bindable var model = model
-        return Menu {
+        Menu {
             Toggle(isOn: $model.isPaused) {
                 Label("Pause Live Updates", systemImage: "pause.circle")
             }
-            Picker("Sort By", systemImage: "arrow.up.arrow.down", selection: $model.sortOrder) {
+            Picker(selection: $model.sortOrder) {
                 ForEach(ProcessSortOrder.allCases) { order in
                     Text(order.label).tag(order)
                 }
+            } label: {
+                Label("Sort By", systemImage: "arrow.up.arrow.down")
             }
             .pickerStyle(.menu)
-            Picker(
-                "Show",
-                systemImage: "line.3.horizontal.decrease.circle",
-                selection: $model.scopeFilter
-            ) {
+            Picker(selection: $model.scopeFilter) {
                 ForEach(ProcessScopeFilter.allCases) { filter in
                     Text(filter.label).tag(filter)
                 }
+            } label: {
+                Label("Show", systemImage: "line.3.horizontal.decrease.circle")
             }
             .pickerStyle(.menu)
         } label: {
@@ -141,22 +145,28 @@ struct ContentView: View {
         let usage = InspectorFormat.percent(model.totalCPUFraction)
         let cores = Int(model.system.activeProcessorCount)
         guard cores > 0 else { return usage }
-        return "\(usage) · \(String(localized: "\(cores) cores"))"
+        return "\(usage) · \(InspectorLocalization.format("%lld cores", Int64(cores)))"
     }
 
     private var memorySummary: String {
         let total = model.system.physicalMemory
         let free = model.system.freeMemory
         let used = total > free ? total - free : 0
-        return String(
-            localized: "\(InspectorFormat.bytes(used)) of \(InspectorFormat.bytes(total)) in use"
+        return InspectorLocalization.format(
+            "%@ of %@ in use",
+            InspectorFormat.bytes(used),
+            InspectorFormat.bytes(total)
         )
     }
 
     private var processesSummary: String {
         let processes = model.rows.count
         let threads = Int(model.system.totalThreadCount)
-        return String(localized: "\(processes) processes · \(threads) threads")
+        return InspectorLocalization.format(
+            "%lld processes · %lld threads",
+            Int64(processes),
+            Int64(threads)
+        )
     }
 
     @ViewBuilder private var processSection: some View {
@@ -211,14 +221,18 @@ struct ContentView: View {
         let total = model.rows.count
         var parts = [
             visibleCount == total
-                ? String(localized: "\(total) processes")
-                : String(localized: "\(visibleCount) of \(total) processes"),
+                ? InspectorLocalization.format("%lld processes", Int64(total))
+                : InspectorLocalization.format(
+                    "%lld of %lld processes",
+                    Int64(visibleCount),
+                    Int64(total)
+                ),
         ]
         if model.scopeFilter != .all {
             parts.append(model.scopeFilter.label)
         }
         if model.isPaused {
-            parts.append(String(localized: "Paused"))
+            parts.append(InspectorLocalization.text("Paused"))
         }
         return parts.joined(separator: " · ")
     }
@@ -228,24 +242,29 @@ struct ContentView: View {
         case .connecting where model.rows.isEmpty:
             ProgressView("Connecting to the inspector service…")
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Can’t Connect", systemImage: "bolt.slash")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try Again") { model.start() }
-            }
+            InspectorUnavailableView(
+                title: "Can’t Connect",
+                systemImage: "bolt.slash",
+                message: message,
+                actionTitle: "Try Again",
+                action: model.start
+            )
         case .active where !model.rows.isEmpty && model.visibleRows.isEmpty:
             if model.searchText.isEmpty {
-                ContentUnavailableView(
-                    "Nothing to Show",
+                InspectorUnavailableView(
+                    title: "Nothing to Show",
                     systemImage: "line.3.horizontal.decrease.circle",
-                    description: Text(
-                        "No process matches the “\(model.scopeFilter.label)” filter right now."
+                    message: InspectorLocalization.format(
+                        "No process matches the “%@” filter right now.",
+                        model.scopeFilter.label
                     )
                 )
             } else {
-                ContentUnavailableView.search(text: model.searchText)
+                InspectorUnavailableView(
+                    title: "Nothing to Show",
+                    systemImage: "magnifyingglass",
+                    message: model.searchText
+                )
             }
         default:
             EmptyView()
@@ -294,8 +313,10 @@ private struct ProcessRowView: View {
             "PID \(String(row.record.pid))",
             InspectorFormat.user(row.record.userID),
         ]
-        if row.isApp { parts.append(String(localized: "App")) }
-        parts.append(String(localized: "\(Int(row.record.threadCount)) threads"))
+        if row.isApp { parts.append(InspectorLocalization.text("App")) }
+        parts.append(
+            InspectorLocalization.format("%lld threads", Int64(row.record.threadCount))
+        )
         return parts.joined(separator: " · ")
     }
 }

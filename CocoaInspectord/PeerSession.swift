@@ -37,9 +37,10 @@ final class PeerSession {
 
     func activate() {
         guard let connection else { return }
-        xpc_connection_set_event_handler(connection) { [weak self] event in
+        let handler: @convention(block) (xpc_object_t) -> Void = { [weak self] event in
             autoreleasepool { self?.handle(event) }
         }
+        xpc_connection_set_event_handler(connection, handler)
         xpc_connection_activate(connection)
     }
 
