@@ -54,7 +54,7 @@ final class DaemonServer {
         xpc_connection_activate(listener)
     }
 
-    private func accept(_ event: xpc_object_t) {
+    fileprivate func accept(_ event: xpc_object_t) {
         guard xpc_get_type(event) == XPC_TYPE_CONNECTION else { return }
         guard activeSession == nil else {
             xpc_connection_cancel(event)
